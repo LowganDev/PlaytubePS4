@@ -1,0 +1,22 @@
+# The player on the test clip: the bar on the first picture, the menu's two rows, the comments panel and a
+# comment's replies
+wait 20
+press Down
+press Confirm
+wait 30
+screenshot player
+press Up
+wait 10
+screenshot player_menu
+press Up
+press Confirm
+wait 20
+screenshot player_comments
+press Confirm
+wait 10
+screenshot player_replies
+press Back
+wait 5
+press Back
+wait 10
+screenshot player_back

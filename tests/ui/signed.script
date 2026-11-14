@@ -1,0 +1,30 @@
+# Signed in (tests/ui/signed.account): the home's feeds, the subscriptions, the library and its playlists, a
+# playlist, the player's menu with the rating, the subscription and "Enregistrer"
+wait 20
+screenshot signed_home
+press Up
+press Right
+press Right
+press Confirm
+wait 15
+screenshot signed_subscriptions
+press Up
+press Up
+press Right
+press Confirm
+wait 15
+screenshot signed_library
+press Down
+press Down
+press Down
+wait 40
+screenshot signed_library_playlists
+press Right
+press Confirm
+wait 15
+screenshot signed_playlist
+press Confirm
+wait 30
+press Up
+wait 10
+screenshot signed_player_menu
