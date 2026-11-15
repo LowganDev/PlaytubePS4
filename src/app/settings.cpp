@@ -93,6 +93,7 @@ Settings loadSettings(const std::string& path) {
     settings.dislikes = core::json::boolean(root, "dislikes", true);
     settings.watchHistory = core::json::boolean(root, "watchHistory", true);
     settings.shorts = core::json::boolean(root, "shorts", true);
+    settings.dearrow = core::json::boolean(root, "dearrow", false);
     if (core::json::string(root, "logo") == "youtube") {
         settings.logo = "youtube";
     }
@@ -134,6 +135,7 @@ bool saveSettings(const std::string& path, const Settings& settings) {
     writer.key("dislikes").value(settings.dislikes);
     writer.key("watchHistory").value(settings.watchHistory);
     writer.key("shorts").value(settings.shorts);
+    writer.key("dearrow").value(settings.dearrow);
     writer.key("logo").value(settings.logo);
     writer.end();
     return core::writeFileAtomic(path, writer.str());

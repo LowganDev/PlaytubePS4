@@ -83,6 +83,15 @@ ProgressLookup& progressLookup() {
 void setProgressLookup(ProgressLookup lookup) { progressLookup() = std::move(lookup); }
 
 namespace {
+BrandingSource& brandingSource() {
+    static BrandingSource source;
+    return source;
+}
+}  // namespace
+
+void setBrandingSource(BrandingSource source) { brandingSource() = std::move(source); }
+
+namespace {
 ShortsOpener& shortsOpener() {
     static ShortsOpener opener;
     return opener;
@@ -180,6 +189,7 @@ VideoCard::VideoCard(bool channelButton) : ui::Box(ui::Axis::Column) {
 }
 
 VideoCard::~VideoCard() {
+    *alive_ = false;
     if (ui::context().animator != nullptr) {
         ui::context().animator->cancel(this);
     }
@@ -216,7 +226,34 @@ void VideoCard::show(const youtube::Video& video) {
     videoId_ = watchable ? video.id : std::string();
     youtubePercent_ = watchable ? video.percentWatched : -1;
     refreshWatched();
+    if (watchable && !video.isShort) {
+        askBranding(video);
+    }
     markDirty();
+}
+
+// DeArrow's title and thumbnail in place of YouTube's, when it has them; YouTube's picture again if DeArrow's cannot
+// be shown. The answer is dropped when the card shows another video by then (lists reuse their cards).
+void VideoCard::askBranding(const youtube::Video& video) {
+    if (!brandingSource()) {
+        return;
+    }
+    std::weak_ptr<bool> alive = alive_;
+    const std::string id = video.id;
+    const std::string original = video.thumbnail;
+    brandingSource()(id, [this, alive, id, original](const std::string& title, const std::string& thumbnail) {
+        const auto flag = alive.lock();
+        if (!flag || !*flag || videoId_ != id) {
+            return;
+        }
+        if (!title.empty()) {
+            title_->setText(core::withoutEmoji(title));
+        }
+        if (!thumbnail.empty()) {
+            image_->setUrl(thumbnail, original);
+        }
+        markDirty();
+    });
 }
 
 // the larger of YouTube's progress and Playtube's own (which changes while the card stays: a video watched, back)

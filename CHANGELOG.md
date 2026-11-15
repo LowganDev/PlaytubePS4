@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 (2026-11-15)
+
+- Fixed: some videos (a picture 1080 pixels wide, often a song over a still picture) closed Playtube a few
+  seconds after they started or when they were closed.
+- DeArrow: an option (off by default) replaces clickbait titles and thumbnails with the ones the DeArrow
+  community chose.
+
 ## 1.0.0 (2026-11-14)
 
 - First version of Playtube.

@@ -44,9 +44,25 @@ std::uint64_t fnv1a(std::string_view text) {
     return hash;
 }
 
+namespace {
+ExtraDecoder& extraDecoder() {
+    static ExtraDecoder decoder;
+    return decoder;
+}
+}  // namespace
+
+void setExtraDecoder(ExtraDecoder decoder) { extraDecoder() = std::move(decoder); }
+
+bool isWebp(const std::string& bytes) {
+    return bytes.size() >= 16 && bytes.compare(0, 4, "RIFF") == 0 && bytes.compare(8, 4, "WEBP") == 0;
+}
+
 bool looksLikeImage(const std::string& bytes) {
     if (bytes.empty() || bytes.size() > 64u * 1024u * 1024u) {
         return false;
+    }
+    if (isWebp(bytes)) {
+        return static_cast<bool>(extraDecoder());  // its size is checked once decoded
     }
     int w = 0;
     int h = 0;
@@ -295,11 +311,21 @@ std::optional<DecodedImage> decodeImage(const std::string& bytes, int width, int
     int w = 0;
     int h = 0;
     int channels = 0;
-    unsigned char* data = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bytes.data()),
-                                                static_cast<int>(bytes.size()), &w, &h, &channels, 4);
-    if (data == nullptr || w <= 0 || h <= 0) {
-        stbi_image_free(data);
-        return std::nullopt;
+    std::vector<std::uint8_t> extra;
+    unsigned char* data = nullptr;
+    if (isWebp(bytes)) {
+        if (!extraDecoder()(bytes, w, h, extra) || w <= 0 || h <= 0 || w > kMaxImageSide || h > kMaxImageSide ||
+            extra.size() != static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4) {
+            return std::nullopt;
+        }
+        data = extra.data();
+    } else {
+        data = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bytes.data()),
+                                     static_cast<int>(bytes.size()), &w, &h, &channels, 4);
+        if (data == nullptr || w <= 0 || h <= 0) {
+            stbi_image_free(data);
+            return std::nullopt;
+        }
     }
     const float scale = std::min(1.0f, std::max(static_cast<float>(std::max(width, 1)) / static_cast<float>(w),
                                                  static_cast<float>(std::max(height, 1)) / static_cast<float>(h)));
@@ -336,7 +362,9 @@ std::optional<DecodedImage> decodeImage(const std::string& bytes, int width, int
             }
         }
     }
-    stbi_image_free(data);
+    if (extra.empty()) {
+        stbi_image_free(data);
+    }
     const bool crop = shape == ImageShape::Crop || shape == ImageShape::Backdrop || shape == ImageShape::ThemedBackdrop;
     if (crop && (out.width > width || out.height > height)) {
         const int cw = std::min(out.width, std::max(width, 1));

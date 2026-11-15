@@ -8,7 +8,7 @@ if(PLATFORM_PS4 AND NOT CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{OPENORBIS}/cmake/ps4.cmake" CACHE FILEPATH "")
 endif()
 
-project(Playtube VERSION 1.0.0 LANGUAGES C CXX)
+project(Playtube VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -156,8 +156,9 @@ add_library(playtube_player STATIC
     src/player/engine.cpp
     src/player/seek.cpp
     src/player/trickplay.cpp
+    src/player/webp.cpp
 )
-target_link_libraries(playtube_player PUBLIC playtube_base PRIVATE playtube_mpv)
+target_link_libraries(playtube_player PUBLIC playtube_base PRIVATE playtube_mpv playtube_av)
 playtube_set_warnings(playtube_player)
 
 # YouTube: its private API, sign-in and SponsorBlock

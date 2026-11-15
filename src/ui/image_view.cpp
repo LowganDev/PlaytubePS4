@@ -13,7 +13,10 @@ namespace playtube::ui {
 
 ImageView::ImageView() : placeholder(theme().surface) { cornerRadius = theme().radius; }
 
-void ImageView::setUrl(std::string url) {
+void ImageView::setUrl(std::string url) { setUrl(std::move(url), std::string()); }
+
+void ImageView::setUrl(std::string url, std::string fallback) {
+    fallback_ = std::move(fallback);
     if (url == url_) {
         return;
     }
@@ -43,6 +46,14 @@ void ImageView::layout(TextMetrics& metrics) {
     request_ = context().images->request(url_, w, h, [this](TextureRef texture) {
         texture_ = std::move(texture);
         failed_ = !texture_;
+        if (failed_ && !fallback_.empty() && fallback_ != url_) {  // the other picture, at the next layout
+            url_ = std::move(fallback_);
+            fallback_.clear();
+            requested_.clear();
+            failed_ = false;
+            markDirty();
+            return;
+        }
         if (texture_ && fadeIn && context().animator != nullptr) {
             alpha_ = 0;
             context().animator->animate(&alpha_, 1, theme().fadeMs, Easing::Linear, this);

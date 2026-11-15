@@ -169,6 +169,54 @@ void AppSession::stopTransfers() {
     transfers_.reset();
 }
 
+void AppSession::branding(const std::string& videoId, std::function<void(const Branding&)> ready) {
+    if (!settings_.dearrow || videoId.empty() || !youtube_) {
+        return;
+    }
+    const auto known = brandings_.find(videoId);
+    if (known != brandings_.end()) {
+        ready(known->second);
+        return;
+    }
+    auto& waiting = brandingWaiting_[videoId];
+    waiting.push_back(std::move(ready));
+    if (waiting.size() > 1) {
+        return;  // already asked
+    }
+    const youtube::Client* client = youtube_.get();
+    const std::string id = videoId;
+    const auto job = [client, id] {
+        Branding out;
+        auto answer = client->branding(id);
+        if (answer.ok()) {
+            out.title = answer.value().title;
+            if (answer.value().thumbnailTime >= 0) {
+                out.thumbnail = client->brandingThumbnail(id, answer.value().thumbnailTime);
+            }
+        } else {
+            PF_LOG_DEBUG("dearrow: %s: %s", id.c_str(), answer.error().message.c_str());
+        }
+        return out;
+    };
+    const auto apply = [this, id](Branding found) {
+        if (brandings_.size() >= kMaxBrandings) {
+            brandings_.clear();
+        }
+        brandings_[id] = found;
+        auto callbacks = std::move(brandingWaiting_[id]);
+        brandingWaiting_.erase(id);
+        for (const auto& callback : callbacks) {
+            callback(found);
+        }
+    };
+    ui::Application* app = ui::Application::current();
+    if (synchronous || app == nullptr) {
+        apply(job());
+        return;
+    }
+    core::runAsync<Branding>(app->pool(), app->mainQueue(), job, apply, core::CancelToken{});
+}
+
 void AppSession::checkForUpdate(std::function<void()> done) {
     if (updateChecked || updateUrl.empty()) {
         if (done) {

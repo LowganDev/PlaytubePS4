@@ -24,6 +24,7 @@ struct Engine::Impl {
     bool shownFirst = false;  // FirstFrame sent for the current file
     std::string error;
     double renderMs = 0;
+    std::vector<std::uint8_t> aligned;  // the picture drawn on 64-byte rows, when the frame's are not
 
     ~Impl() {
         if (render != nullptr) {
@@ -332,8 +333,18 @@ bool Engine::renderIfDue(VideoFrame& frame) {
     if (width <= 0 || height <= 0 || width > 8192 || height > 8192) {
         return false;
     }
-    const std::size_t stride = static_cast<std::size_t>(width) * 4;
-    frame.pixels.resize(stride * static_cast<std::size_t>(height));
+    // mpv wants a stride and a pointer on 64 bytes: a width whose rows are not (1080 px: 4320 bytes) goes through
+    // its unaligned path, which ended Playtube on the console. Such a picture is drawn in an aligned buffer, then
+    // its rows are packed into the frame.
+    const std::size_t tight = static_cast<std::size_t>(width) * 4;
+    const std::size_t stride = (tight + 63) / 64 * 64;
+    frame.pixels.resize(tight * static_cast<std::size_t>(height));
+    std::uint8_t* target = frame.pixels.data();
+    if (stride != tight || reinterpret_cast<std::uintptr_t>(target) % 64 != 0) {
+        impl_->aligned.resize(stride * static_cast<std::size_t>(height) + 64);
+        const auto base = reinterpret_cast<std::uintptr_t>(impl_->aligned.data());
+        target = impl_->aligned.data() + (64 - base % 64) % 64;
+    }
     int size[2] = {width, height};
     char format[] = "rgb0";
     std::size_t strideParam = stride;
@@ -341,7 +352,7 @@ bool Engine::renderIfDue(VideoFrame& frame) {
     mpv_render_param params[] = {{MPV_RENDER_PARAM_SW_SIZE, size},
                                  {MPV_RENDER_PARAM_SW_FORMAT, format},
                                  {MPV_RENDER_PARAM_SW_STRIDE, &strideParam},
-                                 {MPV_RENDER_PARAM_SW_POINTER, frame.pixels.data()},
+                                 {MPV_RENDER_PARAM_SW_POINTER, target},
                                  {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block},
                                  {MPV_RENDER_PARAM_INVALID, nullptr}};
     const auto start = std::chrono::steady_clock::now();
@@ -350,6 +361,12 @@ bool Engine::renderIfDue(VideoFrame& frame) {
     if (rc < 0) {
         PF_LOG_WARN("mpv: render failed: %s", mpv_error_string(rc));
         return false;
+    }
+    if (target != frame.pixels.data()) {
+        for (int y = 0; y < height; ++y) {
+            std::memcpy(frame.pixels.data() + static_cast<std::size_t>(y) * tight,
+                        target + static_cast<std::size_t>(y) * stride, tight);
+        }
     }
     frame.width = width;
     frame.height = height;

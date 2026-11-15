@@ -183,6 +183,11 @@ public:
             session_.saveSettings();
             dislikes_->setValue(onOff(session_.settings().dislikes));
         });
+        dearrow_ = column->add<ui::ValueRow>(ui::tr("settings.dearrow"), onOff(session_.settings().dearrow), [this] {
+            session_.settings().dearrow = !session_.settings().dearrow;
+            session_.saveSettings();
+            dearrow_->setValue(onOff(session_.settings().dearrow));
+        });
         watchHistory_ = column->add<ui::ValueRow>(ui::tr("settings.watch_history"),
                                                   onOff(session_.settings().watchHistory), [this] {
             session_.settings().watchHistory = !session_.settings().watchHistory;
@@ -489,6 +494,7 @@ private:
     ui::ValueRow* subtitleSize_ = nullptr;
     ui::ValueRow* dislikes_ = nullptr;
     ui::ValueRow* watchHistory_ = nullptr;
+    ui::ValueRow* dearrow_ = nullptr;
     ui::ValueRow* shorts_ = nullptr;
     ui::ValueRow* logo_ = nullptr;
     ui::ValueRow* subtitleBackground_ = nullptr;

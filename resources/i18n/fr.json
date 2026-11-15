@@ -203,6 +203,7 @@
   "number.group": " ",
   "player.votes": "{0} J'aime · {1} Je n'aime pas",
   "settings.dislikes": "Nombre de « Je n'aime pas »",
+  "settings.dearrow": "Titres et miniatures DeArrow",
   "settings.shorts": "Afficher les Shorts",
   "settings.watch_history": "Historique YouTube",
   "queue.add": "Ajouter à la file",

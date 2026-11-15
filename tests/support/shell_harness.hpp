@@ -58,7 +58,7 @@ struct Shell {
     Shell() {
         youtube::Endpoints endpoints;
         endpoints.youtube = endpoints.suggest = endpoints.sponsor = endpoints.oauthRevoke = endpoints.dislikes =
-            endpoints.stats = youtube.baseUrl();
+            endpoints.stats = endpoints.dearrow = endpoints.dearrowThumbnails = youtube.baseUrl();
         session.startYoutube("en", endpoints);
         ui::translator().load(std::string(PLAYTUBE_SOURCE_DIR) + "/resources/i18n", "en");
         session.synchronous = true;

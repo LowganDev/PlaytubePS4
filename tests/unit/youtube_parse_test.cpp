@@ -478,3 +478,29 @@ TEST_CASE("live chat: the video page gives its first page; a page's messages, Su
     CHECK_FALSE(parseLiveChat("{}").ok());
     CHECK_FALSE(parseLiveChat("not json").ok());
 }
+
+TEST_CASE("DeArrow: the best trusted title and thumbnail; the original first or a disliked one keeps YouTube's") {
+    const auto branding = parseBranding(fixture("../dearrow/branding.json"));  // recorded 2026-11-15
+    REQUIRE(branding.ok());
+    CHECK(branding.value().title == "Granting Wishes for 100 People with Cancer");
+    CHECK(branding.value().thumbnailTime == doctest::Approx(219.059131));
+
+    const auto original = parseBranding(R"({"titles":[{"title":"Theirs","original":true,"votes":5,"locked":false},
+        {"title":"Another","original":false,"votes":2,"locked":false}],"thumbnails":[{"original":true,"votes":3}]})");
+    REQUIRE(original.ok());
+    CHECK(original.value().title.empty());
+    CHECK(original.value().thumbnailTime < 0);
+
+    const auto voted = parseBranding(R"({"titles":[{"title":"Bad","original":false,"votes":-2,"locked":false},
+        {"title":"The >iPhone story","original":false,"votes":0,"locked":false}],
+        "thumbnails":[{"timestamp":12.5,"original":false,"votes":-1,"locked":true}]})");
+    REQUIRE(voted.ok());
+    CHECK(voted.value().title == "The iPhone story");  // the disliked one skipped, the ">" marker removed
+    CHECK(voted.value().thumbnailTime == doctest::Approx(12.5));  // locked by a moderator
+
+    const auto none = parseBranding(R"({"titles":[],"thumbnails":[],"casualVotes":[],"videoDuration":null})");
+    REQUIRE(none.ok());
+    CHECK(none.value().title.empty());
+    CHECK(none.value().thumbnailTime < 0);
+    CHECK_FALSE(parseBranding("[]").ok());
+}

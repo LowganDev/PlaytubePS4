@@ -203,6 +203,7 @@
   "number.group": ",",
   "player.votes": "{0} likes · {1} dislikes",
   "settings.dislikes": "Dislike counts",
+  "settings.dearrow": "DeArrow titles and thumbnails",
   "settings.shorts": "Show Shorts",
   "settings.watch_history": "YouTube watch history",
   "queue.add": "Add to queue",

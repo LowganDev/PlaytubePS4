@@ -203,6 +203,7 @@
   "number.group": ",",
   "player.votes": "{0} 赞 · {1} 踩",
   "settings.dislikes": "踩的数量",
+  "settings.dearrow": "DeArrow 标题和缩略图",
   "settings.shorts": "显示 Shorts",
   "settings.watch_history": "YouTube 观看记录",
   "queue.add": "添加到队列",

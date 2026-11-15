@@ -203,6 +203,7 @@
   "number.group": ",",
   "player.votes": "{0} 喜歡 · {1} 不喜歡",
   "settings.dislikes": "不喜歡的數量",
+  "settings.dearrow": "DeArrow 標題和縮圖",
   "settings.shorts": "顯示 Shorts",
   "settings.watch_history": "YouTube 觀看記錄",
   "queue.add": "加入佇列",

@@ -17,6 +17,7 @@
 #include "app/shell/nav_bar.hpp"
 #include "app/shell/screens.hpp"
 #include "app/shell/screensaver.hpp"
+#include "player/webp.hpp"
 #include "app/shell/session.hpp"
 #include "app/update.hpp"
 #include "core/boot_trace.hpp"
@@ -275,7 +276,7 @@ int run(const Options& options) {
         }
         if (!options.youtubeUrl.empty()) {
             endpoints.youtube = endpoints.suggest = endpoints.sponsor = endpoints.oauthRevoke = endpoints.dislikes =
-                endpoints.stats = options.youtubeUrl;
+                endpoints.stats = endpoints.dearrow = endpoints.dearrowThumbnails = options.youtubeUrl;
         }
 #endif
         const auto settingsPath = core::dataPath("settings.json");
@@ -288,6 +289,13 @@ int run(const Options& options) {
         }
         setProgressLookup([&session](const std::string& id) { return session.progress().percent(id); });
         setQueueAdder([&session](const youtube::Video& video) { addToQueue(session, video); });
+        setBrandingSource([&session](const std::string& id,
+                                     std::function<void(const std::string&, const std::string&)> ready) {
+            session.branding(id, [ready](const AppSession::Branding& b) { ready(b.title, b.thumbnail); });
+        });
+        ui::setExtraDecoder([](const std::string& bytes, int& width, int& height, std::vector<std::uint8_t>& rgba) {
+            return player::decodeWebp(bytes, width, height, rgba, ui::kMaxImageSide);
+        });
         setShortsOpener([&session](std::vector<youtube::Video> shorts, std::size_t index) {
             openShorts(session, std::make_shared<const std::vector<youtube::Video>>(std::move(shorts)), index);
         });

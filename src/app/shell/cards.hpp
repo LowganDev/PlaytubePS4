@@ -30,6 +30,12 @@ void setProgressLookup(ProgressLookup lookup);
 using ShortsOpener = std::function<void(std::vector<youtube::Video> shorts, std::size_t index)>;
 void setShortsOpener(ShortsOpener opener);
 
+// DeArrow on a card (set once by the app): `ready` gets the video's title and thumbnail address when DeArrow has
+// them (on the main thread, at once or later); nothing when the setting is off.
+using BrandingSource = std::function<void(const std::string& videoId,
+                                          std::function<void(const std::string& title, const std::string& thumbnail)>)>;
+void setBrandingSource(BrandingSource source);
+
 // △ on a video card: adds the video to the queue (set once by the app; none: △ does nothing).
 using QueueAdder = std::function<void(const youtube::Video& video)>;
 void setQueueAdder(QueueAdder adder);
@@ -61,6 +67,8 @@ public:
 private:
     float focus_ = 0;
     void refreshWatched() const;
+    void askBranding(const youtube::Video& video);
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // DeArrow's answers come after a card may be gone
     bool queueable_ = false;  // a video (not a live, a playlist or a channel): △ queues it
     std::string videoId_;     // a watchable video's id: its bar follows Playtube's progress
     int youtubePercent_ = -1;

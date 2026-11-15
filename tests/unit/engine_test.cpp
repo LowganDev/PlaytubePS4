@@ -16,6 +16,7 @@ using namespace playtube;
 namespace {
 
 const std::string kClip = std::string(PLAYTUBE_TEST_FIXTURES) + "/media/clip.mp4";
+const std::string kSquare = std::string(PLAYTUBE_TEST_FIXTURES) + "/media/square.mp4";
 const std::string kSubtitle = std::string(PLAYTUBE_TEST_FIXTURES) + "/media/one.vtt";
 
 // The main loop of a test: waits for the engine's wake-ups, renders, collects events.
@@ -291,4 +292,28 @@ TEST_CASE("subtitles: larger with a bigger scale, and a box behind them when ask
     const int boxed = subtitlePixels(options);
     MESSAGE("boxed " << boxed);
     CHECK(boxed > normal * 2);
+}
+
+TEST_CASE("a picture whose rows are not on 64 bytes (270 px wide) is drawn and packed into the frame") {
+    Pump pump;
+    REQUIRE(pump.engine != nullptr);
+    pump.engine->load(kSquare, 0);
+    REQUIRE(pump.until(8000, [&] { return pump.saw(player::EngineEvent::FirstFrame) && pump.frame.serial > 2; }));
+    REQUIRE(pump.frame.width == 270);
+    REQUIRE(pump.frame.height == 270);
+    CHECK(pump.frame.pixels.size() == 270u * 270u * 4u);
+    // testsrc2 is not one flat colour: rows packed at the wrong offset would make the left column shift
+    std::size_t differing = 0;
+    for (std::size_t i = 4; i < pump.frame.pixels.size(); i += 4) {
+        differing += pump.frame.pixels[i] != pump.frame.pixels[0] ? 1 : 0;
+    }
+    CHECK(differing > 1000);
+    // the first pixel of each row matches the left edge of the picture above it (no diagonal drift)
+    int drift = 0;
+    for (int y = 1; y < 270; ++y) {
+        const auto* row = &pump.frame.pixels[static_cast<std::size_t>(y) * 270 * 4];
+        const auto* above = &pump.frame.pixels[static_cast<std::size_t>(y - 1) * 270 * 4];
+        drift += std::abs(int(row[0]) - int(above[0])) > 40 ? 1 : 0;
+    }
+    CHECK(drift < 20);
 }

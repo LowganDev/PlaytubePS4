@@ -203,6 +203,7 @@
   "number.group": ".",
   "player.votes": "{0} beğenme · {1} beğenmeme",
   "settings.dislikes": "Beğenmeme sayısı",
+  "settings.dearrow": "DeArrow başlıkları ve küçük resimleri",
   "settings.shorts": "Shorts'u göster",
   "settings.watch_history": "YouTube izleme geçmişi",
   "queue.add": "Sıraya ekle",

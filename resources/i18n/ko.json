@@ -203,6 +203,7 @@
   "number.group": ",",
   "player.votes": "좋아요 {0} · 싫어요 {1}",
   "settings.dislikes": "싫어요 수",
+  "settings.dearrow": "DeArrow 제목 및 썸네일",
   "settings.shorts": "Shorts 표시",
   "settings.watch_history": "YouTube 시청 기록",
   "queue.add": "대기열에 추가",

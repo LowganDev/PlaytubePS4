@@ -73,7 +73,16 @@ void shadeBackdrop(std::vector<std::uint8_t>& rgba, int width, int height, std::
 int backdropSplit(int height);
 constexpr std::uint8_t kBackdropTopAlpha = 143;
 
-// JPEG/PNG → RGBA, box-filtered down (never upscaled). nullopt on bad data or over the limits above.
+// A decoder for the formats stb_image lacks (WebP: player::decodeWebp, set once by the app): true and the picture
+// in RGBA when it read `bytes`.
+using ExtraDecoder = std::function<bool(const std::string& bytes, int& width, int& height,
+                                        std::vector<std::uint8_t>& rgba)>;
+void setExtraDecoder(ExtraDecoder decoder);
+// "RIFF....WEBP"
+bool isWebp(const std::string& bytes);
+
+// JPEG/PNG (and WebP through the extra decoder) → RGBA, box-filtered down (never upscaled). nullopt on bad data or
+// over the limits above.
 std::optional<DecodedImage> decodeImage(const std::string& bytes, int width, int height,
                                         ImageShape shape = ImageShape::Whole, const BackdropTreatment& treatment = {});
 // The header names a supported format within the limits (cheap: nothing is decoded).

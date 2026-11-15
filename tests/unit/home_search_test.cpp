@@ -1,11 +1,13 @@
 #include <doctest/doctest.h>
 
 #include <string>
+#include <vector>
 
 #include "app/shell/cards.hpp"
 #include "app/shell/screens.hpp"
 #include "app/shell/video_pages.hpp"
 #include "support/shell_harness.hpp"
+#include "ui/image_view.hpp"
 
 using namespace playtube;
 using namespace playtube::test;
@@ -213,4 +215,32 @@ TEST_CASE("dropShorts leaves the other videos in order") {
     CHECK(page.items[0].id == "0");
     CHECK(page.items[1].id == "2");
     CHECK(page.items[2].id == "4");
+}
+
+TEST_CASE("DeArrow on: cards show its titles and thumbnails; off (the default): nothing is asked") {
+    Shell shell;
+    app::AppSession* session = &shell.session;
+    app::setBrandingSource([session](const std::string& id,
+                                     std::function<void(const std::string&, const std::string&)> ready) {
+        session->branding(id, [ready](const app::AppSession::Branding& b) { ready(b.title, b.thumbnail); });
+    });
+    CHECK_FALSE(shell.session.settings().dearrow);
+    open(shell, app::Tab::Home);
+    CHECK(shell.youtube.requestsTo("/api/branding").empty());
+    CHECK_FALSE(showsSomewhere(*shell.application, "Granting Wishes for 100 People with Cancer"));
+
+    shell.session.settings().dearrow = true;
+    open(shell, app::Tab::Search);
+    open(shell, app::Tab::Home);
+    shell.frames(10);
+    CHECK_FALSE(shell.youtube.requestsTo("/api/branding").empty());
+    CHECK(showsSomewhere(*shell.application, "Granting Wishes for 100 People with Cancer"));
+    std::vector<ui::ImageView*> pictures;
+    findViews<ui::ImageView>(shell.application->root(), pictures);
+    bool dearrowPicture = false;
+    for (const ui::ImageView* picture : pictures) {
+        dearrowPicture = dearrowPicture || picture->url().find("/api/v1/getThumbnail?videoID=") != std::string::npos;
+    }
+    CHECK(dearrowPicture);  // its picture (WebP), YouTube's kept as the fallback
+    app::setBrandingSource({});
 }

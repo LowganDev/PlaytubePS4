@@ -428,3 +428,25 @@ TEST_CASE("client: a live chat's page with the web client") {
     CHECK(asked[0].body.find(R"("continuation":"0ofMyAOEARpe")") != std::string::npos);
     CHECK(asked[0].authorization.empty());
 }
+
+TEST_CASE("client: DeArrow's branding of a video and its thumbnail's address") {
+    FakeYouTube yt;
+    const auto http = testHttp();
+    Endpoints endpoints = at(yt);
+    endpoints.dearrow = endpoints.dearrowThumbnails = yt.baseUrl();
+    const Client client(http, endpoints, "fr", "FR");
+    const auto branding = client.branding("lVylRtlPOIE");
+    REQUIRE(branding.ok());
+    CHECK(branding.value().title == "Granting Wishes for 100 People with Cancer");
+    const auto asked = yt.requestsTo("/api/branding");
+    REQUIRE(asked.size() == 1);
+    CHECK(asked[0].target == "/api/branding?videoID=lVylRtlPOIE");
+    CHECK(asked[0].authorization.empty());
+    // the time as DeArrow's API gave it: its pictures are kept under that exact text, a rounded one is not found
+    const std::string thumbnails = yt.baseUrl() + "/api/v1/getThumbnail?videoID=lVylRtlPOIE&time=";
+    CHECK(client.brandingThumbnail("lVylRtlPOIE", branding.value().thumbnailTime) == thumbnails + "219.059131");
+    CHECK(client.brandingThumbnail("lVylRtlPOIE", 1267.3677896666668) == thumbnails + "1267.3677896666668");
+    CHECK(client.brandingThumbnail("lVylRtlPOIE", 1000) == thumbnails + "1000");
+    CHECK(client.brandingThumbnail("lVylRtlPOIE", 12.5) == thumbnails + "12.5");
+    CHECK(client.brandingThumbnail("lVylRtlPOIE", 0) == thumbnails + "0");
+}

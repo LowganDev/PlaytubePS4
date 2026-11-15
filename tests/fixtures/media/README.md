@@ -7,6 +7,11 @@ Generated, no third-party content.
       ffmpeg -f lavfi -i testsrc2=size=320x180:rate=25 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 4 \
           -c:v libx264 -pix_fmt yuv420p -g 25 -c:a aac -b:a 64k -movflags +faststart clip.mp4
 
+- `square.mp4`: 2 s, 270x270, 25 fps H.264 colour pattern, no sound: a picture whose rows (1080 bytes) are not on
+  64 bytes, as mpv's software output wants them:
+
+      ffmpeg -f lavfi -i testsrc2=size=270x270:rate=25 -t 2 -c:v libx264 -pix_fmt yuv420p square.mp4
+
 - `one.vtt`: one WebVTT cue ("Bonjour", 0-3 s).
 - `tone.mp3`: 1.5 s stereo 440 Hz tone, the music tests' track:
 

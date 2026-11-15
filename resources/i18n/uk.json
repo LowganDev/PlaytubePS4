@@ -203,6 +203,7 @@
   "number.group": " ",
   "player.votes": "{0} «Подобається» · {1} «Не подобається»",
   "settings.dislikes": "Кількість «Не подобається»",
+  "settings.dearrow": "Назви та мініатюри DeArrow",
   "settings.shorts": "Показувати Shorts",
   "settings.watch_history": "Історія переглядів YouTube",
   "queue.add": "Додати до черги",

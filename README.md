@@ -41,6 +41,8 @@ No ads, sponsor segments skipped, your account if you want it.</p>
 - **Live chat** beside a live stream, and **comments** beside a video, with dislike counts from
   [Return YouTube Dislike](https://returnyoutubedislike.com).
 - **Shorts only when you want them:** a setting hides them everywhere but in search.
+- **[DeArrow](https://dearrow.ajay.app):** an option (off by default) that replaces the (often clickbait) thumbnails
+  and titles with the ones its community chose.
 - **For the whole household:** one profile per PS4 account, 14 languages, an accent colour of your choice, a
   clock as the screensaver.
 - **Updates in the app:** a new version is offered at the top of the settings and downloaded in one press.

@@ -31,7 +31,8 @@ core::Result<std::vector<PlaylistChoice>> parseAddToPlaylist(std::string_view js
 core::Result<VideoPage> parseChannelPlaylists(std::string_view json);  // a channel's playlists tab or its next page
 core::Result<std::vector<std::string>> parseSuggestions(std::string_view json);
 core::Result<std::vector<Segment>> parseSegments(std::string_view json);  // SponsorBlock
-core::Result<Votes> parseVotes(std::string_view json);                     // Return YouTube Dislike
+core::Result<Votes> parseVotes(std::string_view json);
+core::Result<Branding> parseBranding(std::string_view json);  // DeArrow's /api/branding                     // Return YouTube Dislike
 core::Result<PlaybackTracking> parsePlaybackTracking(std::string_view json);  // a player reply's
 std::string parseVisitorData(std::string_view swJsData);  // "" when absent
 std::string parseAccountName(std::string_view json);      // "" when absent

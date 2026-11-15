@@ -1057,6 +1057,50 @@ core::Result<PlaybackTracking> parsePlaybackTracking(std::string_view text) {
     return out;
 }
 
+// DeArrow lists its submissions best first; the original title or thumbnail first means "keep YouTube's". A
+// submission counts when a moderator locked it or its votes are not negative. ">" before a word only tells
+// DeArrow's own formatter to leave it as written: removed.
+core::Result<Branding> parseBranding(std::string_view text) {
+    const auto doc = parseJson(text);
+    if (!doc || !yyjson_is_obj(doc->root())) {
+        return badReply("branding: not an object");
+    }
+    const auto trusted = [](V entry) {
+        return json::boolean(entry, "locked", false) || json::integer(entry, "votes", -1) >= 0;
+    };
+    Branding branding;
+    V titles = at(doc->root(), "titles");
+    for (std::size_t i = 0; i < count(titles); ++i) {
+        V entry = item(titles, i);
+        if (!trusted(entry)) {
+            continue;
+        }
+        if (!json::boolean(entry, "original", false)) {
+            std::string title;
+            for (char c : json::string(entry, "title")) {
+                if (c != '>') {
+                    title += c;
+                }
+            }
+            branding.title = title;
+        }
+        break;
+    }
+    V thumbnails = at(doc->root(), "thumbnails");
+    for (std::size_t i = 0; i < count(thumbnails); ++i) {
+        V entry = item(thumbnails, i);
+        if (!trusted(entry)) {
+            continue;
+        }
+        if (!json::boolean(entry, "original", false)) {
+            const double time = json::number(entry, "timestamp", -1);
+            branding.thumbnailTime = time >= 0 && time < 1e7 ? time : -1;
+        }
+        break;
+    }
+    return branding;
+}
+
 core::Result<Votes> parseVotes(std::string_view text) {
     const auto doc = parseJson(text);
     if (!doc || !yyjson_is_obj(doc->root())) {

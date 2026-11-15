@@ -107,6 +107,14 @@ FakeYouTube::FakeYouTube() {
         record(req);
         res.status = 204;
     });
+    http.Get("/api/branding", [this](const httplib::Request& req, httplib::Response& res) {  // DeArrow
+        record(req);
+        res.set_content(readFixture("dearrow/branding.json"), "application/json");
+    });
+    http.Get("/api/v1/getThumbnail", [this](const httplib::Request& req, httplib::Response& res) {
+        record(req);
+        res.set_content(readFixture("dearrow/thumbnail.webp"), "image/webp");
+    });
     http.Get("/logo.svg", [this](const httplib::Request& req, httplib::Response& res) {
         record(req);
         res.set_content(readFixture("svg/logo.svg"), "image/svg+xml");

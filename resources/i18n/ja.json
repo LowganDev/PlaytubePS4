@@ -203,6 +203,7 @@
   "number.group": ",",
   "player.votes": "高評価 {0} · 低評価 {1}",
   "settings.dislikes": "低評価の数",
+  "settings.dearrow": "DeArrow のタイトルとサムネイル",
   "settings.shorts": "ショートを表示",
   "settings.watch_history": "YouTube の再生履歴",
   "queue.add": "キューに追加",

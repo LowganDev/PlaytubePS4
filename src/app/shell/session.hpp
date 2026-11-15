@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "app/progress.hpp"
@@ -89,6 +90,16 @@ public:
     // across a restart.
     std::vector<youtube::Video>& watchQueue() { return watchQueue_; }
 
+    // DeArrow (setting `dearrow`, off by default): `ready` gets the video's title and thumbnail address on the main
+    // thread, at once when known, else once asked (a video DeArrow has nothing for gets empty ones). Nothing is
+    // asked while the setting is off. The last kMaxBrandings are kept in memory.
+    struct Branding {
+        std::string title;
+        std::string thumbnail;
+    };
+    static constexpr std::size_t kMaxBrandings = 2000;
+    void branding(const std::string& videoId, std::function<void(const Branding&)> ready);
+
     // Where videos were left (the profile's progress.json; in memory until setProgressFile)
     ProgressStore& progress() { return progress_; }
     void setProgressFile(const std::string& path) { progress_ = ProgressStore(path); }
@@ -118,6 +129,8 @@ private:
     ProgressStore progress_;
     unsigned logoGeneration_ = 0;
     std::vector<youtube::Video> watchQueue_;
+    std::unordered_map<std::string, Branding> brandings_;
+    std::unordered_map<std::string, std::vector<std::function<void(const Branding&)>>> brandingWaiting_;
 };
 
 }  // namespace playtube::app

@@ -1,6 +1,9 @@
 #include "youtube/client.hpp"
 
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <utility>
 
 #include "core/json.hpp"
@@ -387,6 +390,31 @@ core::Result<std::vector<Segment>> Client::segments(const std::string& videoId,
         return std::vector<Segment>{};  // SponsorBlock's way of saying "none"
     }
     return parsed<std::vector<Segment>>(body, parseSegments);
+}
+
+core::Result<Branding> Client::branding(const std::string& videoId, const core::CancelToken& cancel) const {
+    return parsed<Branding>(get(endpoints_.dearrow + "/api/branding?videoID=" + net::urlEncode(videoId), kWebAgent,
+                                cancel),
+                            parseBranding);
+}
+
+std::string Client::brandingThumbnail(const std::string& videoId, double time) const {
+    // DeArrow keeps its pictures under the time exactly as its API wrote it (JavaScript's shortest form, the
+    // fewest digits that give the number back): a rounded time is not found and the server must make the
+    // picture again, which it refuses when busy (204).
+    char seconds[48] = "0";
+    if (std::isfinite(time) && time > 0) {
+        bool exact = false;
+        for (int digits = 1; digits <= 17 && !exact; ++digits) {
+            std::snprintf(seconds, sizeof(seconds), "%.*g", digits, time);
+            exact = std::strchr(seconds, 'e') == nullptr && std::strtod(seconds, nullptr) == time;
+        }
+        if (!exact) {
+            std::snprintf(seconds, sizeof(seconds), "%.6f", time);
+        }
+    }
+    return endpoints_.dearrowThumbnails + "/api/v1/getThumbnail?videoID=" + net::urlEncode(videoId) +
+           "&time=" + seconds;
 }
 
 core::Result<Votes> Client::votes(const std::string& videoId, const core::CancelToken& cancel) const {

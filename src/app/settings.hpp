@@ -27,6 +27,7 @@ struct Settings {
     std::string subtitleSize = "normal";  // "small", "normal", "large" or "larger"
     bool subtitleBackground = false;      // a dark box behind the subtitles
     bool dislikes = true;                 // Return YouTube Dislike's counts in the player (it gets the video's id)
+    bool dearrow = false;                 // DeArrow's titles and thumbnails on cards (it gets each video's id)
     bool shorts = true;                   // Shorts on the home, channels, feeds and suggestions (search keeps them)
     bool watchHistory = true;             // signed in: videos watched go into the account's YouTube history
     std::string logo = "playtube";        // the header's logo: "playtube", or "youtube" (fetched from YouTube)

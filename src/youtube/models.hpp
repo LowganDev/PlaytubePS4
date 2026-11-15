@@ -26,6 +26,13 @@ struct Video {
 
 enum class ChannelTab { Videos, Shorts, Lives };
 
+// DeArrow's title and thumbnail for a video, chosen by its users instead of the clickbait ones. An empty title or a
+// negative time: keep YouTube's.
+struct Branding {
+    std::string title;
+    double thumbnailTime = -1;  // seconds into the video: the frame DeArrow's thumbnail server draws
+};
+
 // Return YouTube Dislike's counts of a video (YouTube itself shows no dislikes)
 struct Votes {
     std::int64_t likes = 0;

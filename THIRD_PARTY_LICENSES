@@ -91,6 +91,9 @@ Mozilla CA certificate list (resources/certs/cacert.pem, as converted by the cur
 
 SponsorBlock — the segments to skip come from SponsorBlock's database (https://sponsor.ajay.app), by Ajay
   Ramachandran and its contributors, licensed CC BY-NC-SA 4.0.
+DeArrow — when its setting is on (off by default), the titles and thumbnails come from DeArrow's database
+  (https://dearrow.ajay.app, https://sponsor.ajay.app), by Ajay Ramachandran and its contributors, licensed
+  CC BY-NC-SA 4.0; the thumbnails are drawn by its server (https://dearrow-thumb.ajay.app).
 Return YouTube Dislike — the dislike counts come from its API (https://returnyoutubedislike.com), an estimate made
   by the Return YouTube Dislike project.
 

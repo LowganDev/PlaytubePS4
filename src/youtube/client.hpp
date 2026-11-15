@@ -25,6 +25,8 @@ struct Endpoints {
     std::string sponsor = "https://sponsor.ajay.app";
     std::string oauthRevoke = "https://oauth2.googleapis.com";
     std::string dislikes = "https://returnyoutubedislikeapi.com";  // Return YouTube Dislike
+    std::string dearrow = "https://sponsor.ajay.app";               // DeArrow's titles and thumbnails (optional)
+    std::string dearrowThumbnails = "https://dearrow-thumb.ajay.app";
     std::string stats = "https://s.youtube.com";  // reports of watching (PlaybackTracking)
 };
 
@@ -71,6 +73,10 @@ public:
     // Signed-in feeds (TV client): "FEwhat_to_watch", "FEsubscriptions", "FEhistory", "VLWL",
     // "FEplaylist_aggregation" (the account's playlists). An expired token gives ErrorKind::Unauthorized; feedMore
     // takes an empty token for a public playlist's pages.
+    // DeArrow's title and thumbnail for a video (empty when it has none)
+    core::Result<Branding> branding(const std::string& videoId, const core::CancelToken& cancel = {}) const;
+    // The address of DeArrow's thumbnail: the video's frame at `time` (WebP)
+    std::string brandingThumbnail(const std::string& videoId, double time) const;
     // Return YouTube Dislike's estimate of a video's votes
     core::Result<Votes> votes(const std::string& videoId, const core::CancelToken& cancel = {}) const;
     core::Result<VideoPage> feed(const std::string& browseId, const std::string& accessToken,

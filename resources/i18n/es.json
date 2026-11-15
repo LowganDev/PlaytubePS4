@@ -203,6 +203,7 @@
   "number.group": ".",
   "player.votes": "{0} Me gusta · {1} No me gusta",
   "settings.dislikes": "Número de «No me gusta»",
+  "settings.dearrow": "Títulos y miniaturas de DeArrow",
   "settings.shorts": "Mostrar Shorts",
   "settings.watch_history": "Historial de YouTube",
   "queue.add": "Añadir a la cola",

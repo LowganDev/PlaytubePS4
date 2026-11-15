@@ -16,6 +16,8 @@ public:
 
     ImageView();
     void setUrl(std::string url);
+    // `url`, and `fallback` when it cannot be shown (DeArrow's thumbnail, else YouTube's)
+    void setUrl(std::string url, std::string fallback);
     const std::string& url() const { return url_; }
 
     Fit fit = Fit::Cover;
@@ -37,6 +39,7 @@ protected:
 
 private:
     std::string url_;
+    std::string fallback_;
     std::string requested_;
     std::unique_ptr<ImageRequest> request_;
     TextureRef texture_;
