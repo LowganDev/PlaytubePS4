@@ -37,6 +37,9 @@ public:
     void refuseMedia(int itag);           // its file answers 403
     void servePlayableMedia();            // /media/* answers the test clip (a real video with sound)
     void refuseDeepRanges(int itag);      // its first bytes answer, a range further on answers 403
+    // The visitor id given last goes stale, as YouTube's do after hours: with it, VISIONOS's files answer 403 and
+    // ANDROID_VR is refused ("not a robot"). Each /sw.js_data gives a new id.
+    void expireVisitor();
     // the next `times` requests to `path` answer `status`
     void failNext(const std::string& path, int status, int times = 1);
     void setPendingPolls(int count);                     // sign-in: polls answered "pending" before the tokens
@@ -59,6 +62,7 @@ private:
     std::string servedHere(std::string reply) const;  // pictures of the reply fetched from this server
     bool failed(const std::string& path, httplib::Response& res);
     std::string showcaseFeed(const std::string& browseId) const;  // "" outside the showcase
+    static std::string visitorId(int n);  // the id the n-th /sw.js_data gives (the fixture's first)
 
     FakeServer server_{TlsMode::CaSigned};
     mutable std::mutex mutex_;
@@ -67,6 +71,8 @@ private:
     std::map<std::string, std::string> players_;
     std::set<int> refused_;
     std::set<int> refusedDeep_;
+    int visitorsGiven_ = 0;
+    std::set<std::string> expiredVisitors_;
     std::string media_;
     std::map<std::string, std::pair<int, int>> failures_;  // status, times left
     int pendingPolls_ = 0;

@@ -152,6 +152,40 @@ TEST_CASE("client: when every client refuses with a visitor id kept from before,
     CHECK(yt.requestsTo("/sw.js_data").size() == 3);
 }
 
+TEST_CASE("client: HD streams refused with a visitor id kept for hours: a new id is tried before the 360p") {
+    FakeYouTube yt;
+    yt.setPlayer("VISIONOS", yt.playerReply({137, 140, 18}));
+    yt.setPlayer("ANDROID", yt.playerReply({18}));
+    const auto http = testHttp();
+    const Client client(http, at(yt), "fr", "FR");
+    REQUIRE(client.streams("dQw4w9WgXcQ", 1080).ok());
+    yt.expireVisitor();  // VISIONOS's files refused, ANDROID_VR "not a robot", ANDROID's 360p still served
+    const auto streams = client.streams("dQw4w9WgXcQ", 1080);
+    REQUIRE(streams.ok());
+    CHECK(streams.value().client == "VISIONOS");
+    CHECK(streams.value().height == 1080);
+    CHECK(yt.requestsTo("/sw.js_data").size() == 2);
+
+    // HD refused whatever the id: one new id is tried within a call, then the 360p is kept (no loop)
+    yt.setPlayer("VISIONOS", yt.playerReply({137, 140}));
+    yt.refuseMedia(137);
+    const auto fallback = client.streams("dQw4w9WgXcQ", 1080);
+    REQUIRE(fallback.ok());
+    CHECK(fallback.value().client == "ANDROID");
+    CHECK(fallback.value().height == 360);
+    CHECK(yt.requestsTo("/sw.js_data").size() == 3);
+}
+
+TEST_CASE("client: the 360p asked for is no setback: the visitor id is kept") {
+    FakeYouTube yt;
+    yt.setPlayer("ANDROID", yt.playerReply({18}));
+    const auto http = testHttp();
+    const Client client(http, at(yt), "fr", "FR");
+    REQUIRE(client.streams("dQw4w9WgXcQ", 360).ok());
+    REQUIRE(client.streams("dQw4w9WgXcQ", 360).ok());
+    CHECK(yt.requestsTo("/sw.js_data").size() == 1);
+}
+
 TEST_CASE("client: no network is a network error, not a refusal") {
     const auto http = testHttp();
     Endpoints nowhere;
