@@ -30,9 +30,6 @@ No ads, sponsor segments skipped, your account if you want it.</p>
 - **Playback up to 1080p and live streams,** with chapters (L1 / R1 jump between them), a picture of where you
   land while seeking, the time the video ends, the volume, the picture's size and subtitles of the size you like.
 - **Shorts** played upright, ↑ / ↓ to the next one.
-- **Search** with suggestions and filters (type, upload date, duration, sort, live); a pasted YouTube link plays
-  straight away.
-- **Channels:** their videos, Shorts, lives and playlists.
 - **Picks up where you left off:** a red bar under the videos you started, a queue (△ on any video) played before
   the next suggestion.
 - **Your account, if you want it:** sign in with a code on your phone for your recommendations, subscriptions,
@@ -44,8 +41,12 @@ No ads, sponsor segments skipped, your account if you want it.</p>
 - **[DeArrow](https://dearrow.ajay.app):** an option (off by default) that replaces the (often clickbait) thumbnails
   and titles with the ones its community chose.
 - **For the whole household:** one profile per PS4 account, 14 languages, an accent colour of your choice, a
-  clock as the screensaver.
-- **Updates in the app:** a new version is offered at the top of the settings and downloaded in one press.
+  clock as the screensaver, and updates offered at the top of the settings and downloaded in one press.
+
+## Alternatives
+
+- The official YouTube PKG with the [yt_adskip_ps4](https://github.com/earthonion/yt_adskip_ps4) plugin by
+  earthonion: a GoldHEN plugin that skips the ads and the sponsored segments in YouTube's own app.
 
 ## Screenshots
 
