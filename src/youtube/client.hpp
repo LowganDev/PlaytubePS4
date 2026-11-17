@@ -117,8 +117,10 @@ private:
     core::Result<std::string> get(const std::string& url, const std::string& userAgent,
                                   const core::CancelToken& cancel) const;
     std::string visitorData(const core::CancelToken& cancel) const;
+    // `setback`: a client before the chosen one failed (refused, its files refused, no answer)
     std::optional<Streams> fromClients(const std::string& videoId, int maxHeight, const core::CancelToken& cancel,
-                                       std::optional<std::string>& reason, std::optional<core::Error>& failure) const;
+                                       std::optional<std::string>& reason, std::optional<core::Error>& failure,
+                                       bool& setback) const;
     bool reachable(const std::string& url, const std::string& userAgent, const core::CancelToken& cancel) const;
 
     const net::HttpClient& http_;

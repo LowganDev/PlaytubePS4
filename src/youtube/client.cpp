@@ -282,7 +282,8 @@ core::Result<VideoPage> Client::playlist(const std::string& playlistId, const st
 
 std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHeight, const core::CancelToken& cancel,
                                            std::optional<std::string>& reason,
-                                           std::optional<core::Error>& failure) const {
+                                           std::optional<core::Error>& failure, bool& setback) const {
+    setback = false;
     for (const ClientProfile* profile : {&kVision, &kVr, &kIos, &kAndroid}) {
         const auto reply =
             parsed<PlayerReply>(post(*profile, "player", {{"videoId", videoId}}, {}, cancel), parsePlayer);
@@ -292,10 +293,12 @@ std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHe
         if (!reply.ok()) {
             PF_LOG_INFO("youtube: %s player: %s", profile->name, reply.error().message.c_str());
             failure = reply.error();
+            setback = true;
             continue;
         }
         if (!reply.value().playable) {
             PF_LOG_INFO("youtube: %s refused: %s", profile->name, reply.value().reason.c_str());
+            setback = true;
             if (!reason || reason->empty()) {
                 reason = reply.value().reason;  // the first words YouTube gave
             }
@@ -308,6 +311,7 @@ std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHe
              (!chosen->audio.empty() && !reachable(chosen->audio, profile->userAgent, cancel)))) {
             const bool wasMuxed = chosen->audio.empty();
             chosen.reset();
+            setback = true;
             if (!wasMuxed) {
                 PF_LOG_INFO("youtube: %s streams refused, trying its 360p", profile->name);
                 chosen = muxedStreams(reply.value());
@@ -334,16 +338,31 @@ core::Result<Streams> Client::streams(const std::string& videoId, int maxHeight,
     }
     std::optional<std::string> reason;  // set when a client refused (YouTube may give no words)
     std::optional<core::Error> failure;
-    auto chosen = fromClients(videoId, maxHeight, cancel, reason, failure);
-    if (!chosen && reason && keptVisitor && !cancel.cancelled()) {
-        // YouTube may stop honouring a visitor id: every client then refuses
-        PF_LOG_INFO("youtube: every client refused, trying a new visitor id");
+    bool setback = false;
+    auto chosen = fromClients(videoId, maxHeight, cancel, reason, failure, setback);
+    // YouTube stops honouring a visitor id after some hours: the clients' HD files are refused and some clients
+    // refused ("not a robot"); only a muxed 360p may still come. A new id brings the quality back.
+    const bool fellBack = chosen && setback && !chosen->live && chosen->audio.empty() && chosen->height < maxHeight;
+    if (keptVisitor && !cancel.cancelled() && ((!chosen && reason) || fellBack)) {
+        if (chosen) {
+            PF_LOG_INFO("youtube: %dp only, trying a new visitor id", chosen->height);
+        } else {
+            PF_LOG_INFO("youtube: every client refused, trying a new visitor id");
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
             visitor_.clear();
         }
-        reason.reset();
-        chosen = fromClients(videoId, maxHeight, cancel, reason, failure);
+        std::optional<std::string> againReason;
+        std::optional<core::Error> againFailure;
+        auto again = fromClients(videoId, maxHeight, cancel, againReason, againFailure, setback);
+        if (again && (!chosen || again->height > chosen->height || !again->audio.empty())) {
+            chosen = std::move(again);
+        }
+        if (!chosen) {
+            reason = againReason;
+            failure = againFailure;
+        }
     }
     if (chosen) {
         return std::move(*chosen);

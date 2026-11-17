@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -186,6 +187,23 @@ TEST_CASE("software update: a banner at the top of the settings, focused first, 
     s.shell.press(Action::Confirm);
     s.shell.frames(3);
     CHECK(shows(*s.shell.application, ui::tr("settings.update.banner_ready")));
+    // its longer text wraps beside "Ready to install" and the banner grows to hold its lines (it used to overflow)
+    const ui::View* banner = anyNamed(s.shell.application->root(), "update banner");
+    REQUIRE(banner != nullptr);
+    const ui::Rect box = banner->absoluteFrame();
+    std::vector<const ui::View*> pending{banner};
+    while (!pending.empty()) {
+        const ui::View* view = pending.back();
+        pending.pop_back();
+        for (const auto& child : view->children()) {
+            pending.push_back(child.get());
+        }
+        if (const auto* label = dynamic_cast<const ui::Label*>(view)) {  // its lines, as drawn
+            const ui::Rect at = label->absoluteFrame();
+            const float drawn = static_cast<float>(label->lines().size()) * label->style.size * 1.25f;
+            CHECK(at.y + std::max(at.height, drawn) <= box.y + box.height - banner->padding.bottom + 0.01f);
+        }
+    }
     CHECK(std::filesystem::exists(s.shell.dir.path + "/pkg/Playtube-9.0.0.pkg"));
     s.shell.press(Action::Confirm);  // the banner again: how to install it, nothing downloaded twice
     s.shell.frames(3);

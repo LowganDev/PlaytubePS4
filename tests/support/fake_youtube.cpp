@@ -139,7 +139,12 @@ FakeYouTube::FakeYouTube() {
     });
     http.Get("/sw.js_data", [this](const httplib::Request& req, httplib::Response& res) {
         record(req);
-        res.set_content(youtubeFixture("sw_js_data.txt"), "application/json");
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++visitorsGiven_;
+        std::string data = youtubeFixture("sw_js_data.txt");
+        const std::string first = visitorId(1);
+        data.replace(data.find(first), first.size(), visitorId(visitorsGiven_));
+        res.set_content(data, "application/json");
     });
     http.Get(R"(/img/(.+))", [this](const httplib::Request& req, httplib::Response& res) {
         record(req);
@@ -237,6 +242,15 @@ FakeYouTube::FakeYouTube() {
             std::lock_guard<std::mutex> lock(mutex_);
             const auto found = players_.find(client);
             reply = found != players_.end() ? found->second : youtubeFixture("player_refused.json");
+            if (expiredVisitors_.count(req.get_header_value("X-Goog-Visitor-Id")) != 0) {
+                if (client == "ANDROID_VR") {
+                    reply = youtubeFixture("player_refused.json");
+                } else if (client == "VISIONOS") {
+                    for (std::size_t at = 0; (at = reply.find("/media/", at)) != std::string::npos;) {
+                        reply.replace(at, 7, "/stale/");  // files that answer 403
+                    }
+                }
+            }
         } else {
             res.status = 404;
             return;
@@ -262,6 +276,10 @@ FakeYouTube::FakeYouTube() {
             return;
         }
         res.set_content(youtubeFixture("invidious_video.json"), "application/json");
+    });
+    http.Get(R"(/stale/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
+        record(req);
+        res.status = 403;
     });
     http.Get(R"(/media/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
         record(req);
@@ -398,6 +416,15 @@ void FakeYouTube::servePlayableMedia() {
 void FakeYouTube::refuseDeepRanges(int itag) {
     std::lock_guard<std::mutex> lock(mutex_);
     refusedDeep_.insert(itag);
+}
+
+std::string FakeYouTube::visitorId(int n) {
+    return n <= 1 ? "CgtkZW1vVmlzaXRvcg%3D%3D" : "CgtkZW1vVmlzaXRvcg" + std::to_string(n) + "%3D%3D";
+}
+
+void FakeYouTube::expireVisitor() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    expiredVisitors_.insert(visitorId(visitorsGiven_));
 }
 
 void FakeYouTube::refuseMedia(int itag) {
