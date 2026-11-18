@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 (2026-11-18)
+
+- Fixed: after Playtube had been open for hours, every video played in 360p whatever the quality chosen.
+- Fixed: once the update was downloaded, the text of the banner at the top of the settings went past it.
+
 ## 1.1.0 (2026-11-15)
 
 - Fixed: some videos (a picture 1080 pixels wide, often a song over a still picture) closed Playtube a few
