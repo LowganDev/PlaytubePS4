@@ -6,6 +6,7 @@
 #include "core/version.hpp"
 #include "platform/backend.hpp"
 #include "platform/language.hpp"
+#include "platform/remote.hpp"
 
 namespace playtube::platform::backend {
 
@@ -38,6 +39,12 @@ std::string systemLanguage() {
         }
     }
     return "en-US";
+}
+
+bool readRemote(std::uint32_t& buttons, std::uint8_t& key) {
+    (void)buttons;
+    (void)key;
+    return false;  // no remote control on a PC
 }
 
 std::string resourceDir() {

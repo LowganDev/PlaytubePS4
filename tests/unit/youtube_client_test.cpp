@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <chrono>
 #include <string>
 
 #include "net/http.hpp"
@@ -147,9 +148,96 @@ TEST_CASE("client: when every client refuses with a visitor id kept from before,
     yt.setPlayer("VISIONOS", test::readFixture("youtube/player_refused.json"));
     CHECK_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());
     CHECK(yt.requestsTo("/sw.js_data").size() == 2);
-    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 1 + 8);
-    CHECK_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());  // the new id was fetched in this call: no retry
+    // the four clients, then the first one alone with the new id (the bot check refused them all: they rest)
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 1 + 4 + 1);
+    CHECK_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());  // the new id did not help: none asked for a while
+    CHECK(yt.requestsTo("/sw.js_data").size() == 2);
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 1 + 4 + 1 + 1);
+}
+
+TEST_CASE("client: clients refused by the bot check rest: a blocked connection costs one request a video") {
+    FakeYouTube yt;  // refuses every client: "pas un robot"
+    const auto http = testHttp();
+    Client client(http, at(yt), "fr", "FR");
+    auto now = std::chrono::steady_clock::now();
+    client.setClock([&now] { return now; });
+    const auto first = client.streams("dQw4w9WgXcQ", 1080);
+    REQUIRE_FALSE(first.ok());
+    CHECK(first.error().kind == core::ErrorKind::Blocked);
+    CHECK(first.error().message == "Connectez-vous pour confirmer que vous n'\xC3\xAAtes pas un robot");
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4);
+
+    // another video: the first client alone, once more with a new visitor id, then no new id for half an hour
+    CHECK(client.streams("yD1EYj8xct0", 1080).error().kind == core::ErrorKind::Blocked);
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 2);
+    CHECK(yt.requestsTo("/sw.js_data").size() == 2);
+    CHECK_FALSE(client.streams("yD1EYj8xct0", 1080).ok());
+    CHECK_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 2 + 2);
+    CHECK(yt.requestsTo("/sw.js_data").size() == 2);
+    CHECK(yt.requestsTo("/youtubei/v1/player").back().clientName == "VISIONOS");
+
+    now += std::chrono::minutes(11);  // the rest is over: every client is asked again
+    CHECK_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 2 + 2 + 4);
+    CHECK(yt.requestsTo("/sw.js_data").size() == 2);
+
+    now += std::chrono::minutes(31);  // and a new visitor id may be tried again
+    CHECK_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());
     CHECK(yt.requestsTo("/sw.js_data").size() == 3);
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 2 + 2 + 4 + 4 + 1);
+}
+
+TEST_CASE("client: a client refused in the bot check's words rests too, whatever its reply's shape") {
+    // seen 2026-11-20 on the console: IOS and ANDROID's refusals carry more than VISIONOS's and were asked again
+    FakeYouTube yt;
+    const std::string mobile = R"({"playabilityStatus":{"status":"LOGIN_REQUIRED",
+        "reason":"Connectez-vous pour confirmer que vous n'\u00eates pas un robot",
+        "errorScreen":{"playerErrorMessageRenderer":{"subreason":{"simpleText":"Connectez-vous"}}}}})";
+    yt.setPlayer("IOS", mobile);
+    yt.setPlayer("ANDROID", mobile);
+    const auto http = testHttp();
+    Client client(http, at(yt), "fr", "FR");
+    auto now = std::chrono::steady_clock::now();
+    client.setClock([&now] { return now; });
+    REQUIRE_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4);
+    CHECK(client.streams("yD1EYj8xct0", 1080).error().kind == core::ErrorKind::Blocked);
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 2);  // the first client alone, twice (a new id)
+    CHECK_FALSE(client.streams("yD1EYj8xct0", 1080).ok());
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 2 + 1);
+    CHECK(yt.requestsTo("/youtubei/v1/player").back().clientName == "VISIONOS");
+}
+
+TEST_CASE("client: a resting client that YouTube accepts again plays at once") {
+    FakeYouTube yt;
+    const auto http = testHttp();
+    Client client(http, at(yt), "fr", "FR");
+    REQUIRE_FALSE(client.streams("dQw4w9WgXcQ", 1080).ok());
+    yt.setPlayer("VISIONOS", yt.playerReply({137, 140}));  // the block lifts
+    const auto streams = client.streams("dQw4w9WgXcQ", 1080);
+    REQUIRE(streams.ok());
+    CHECK(streams.value().client == "VISIONOS");
+    CHECK(streams.value().height == 1080);
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4 + 1);
+}
+
+TEST_CASE("client: a refusal that is not the bot check does not rest the clients") {
+    FakeYouTube yt;
+    const std::string gone = R"({"playabilityStatus":{"status":"ERROR","reason":"Vid\u00e9o non disponible"}})";
+    for (const char* name : {"VISIONOS", "ANDROID_VR", "IOS", "ANDROID"}) {
+        yt.setPlayer(name, gone);
+    }
+    const auto http = testHttp();
+    const Client client(http, at(yt), "fr", "FR");
+    const auto refused = client.streams("dQw4w9WgXcQ", 1080);
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().kind == core::ErrorKind::Server);
+    CHECK(yt.requestsTo("/youtubei/v1/player").size() == 4);
+    yt.setPlayer("ANDROID_VR", yt.playerReply({137, 140}));
+    const auto other = client.streams("yD1EYj8xct0", 1080);  // every client is asked for another video
+    REQUIRE(other.ok());
+    CHECK(other.value().client == "ANDROID_VR");
 }
 
 TEST_CASE("client: HD streams refused with a visitor id kept for hours: a new id is tried before the 360p") {
@@ -173,6 +261,8 @@ TEST_CASE("client: HD streams refused with a visitor id kept for hours: a new id
     REQUIRE(fallback.ok());
     CHECK(fallback.value().client == "ANDROID");
     CHECK(fallback.value().height == 360);
+    CHECK(yt.requestsTo("/sw.js_data").size() == 3);
+    REQUIRE(client.streams("dQw4w9WgXcQ", 1080).ok());  // the new id did not help: none asked for a while
     CHECK(yt.requestsTo("/sw.js_data").size() == 3);
 }
 
@@ -420,7 +510,7 @@ TEST_CASE("client: where to report watching (TV client, signed in), and a report
     FakeYouTube yt;
     const auto http = testHttp();
     const Client client(http, at(yt), "fr", "FR");
-    const auto tracking = client.playbackTracking("dQw4w9WgXcQ", "demo-access-token");
+    const auto tracking = client.playbackTracking("dQw4w9WgXcQ", "demo-access-token", "AbCdEfGh01234567");
     REQUIRE(tracking.ok());
     CHECK(tracking.value().playbackUrl == yt.baseUrl() + "/api/stats/playback?ns=yt&el=leanback&docid=dQw4w9WgXcQ&len=212");
     CHECK(tracking.value().watchtimeUrl.rfind(yt.baseUrl() + "/api/stats/watchtime?", 0) == 0);
@@ -428,6 +518,11 @@ TEST_CASE("client: where to report watching (TV client, signed in), and a report
     REQUIRE(players.size() == 1);
     CHECK(players[0].clientName == "TVHTML5");
     CHECK(players[0].authorization == "Bearer demo-access-token");
+    // the TV player's own signature timestamp (8 digits) and the playback's nonce: without the timestamp YouTube
+    // answers UNPLAYABLE "La page doit être actualisée" and no address (seen 2026-11-20)
+    CHECK(players[0].body.find(R"("playbackContext":{"contentPlaybackContext":{"signatureTimestamp":2)") !=
+          std::string::npos);
+    CHECK(players[0].body.find(R"("cpn":"AbCdEfGh01234567")") != std::string::npos);
 
     REQUIRE(client.report(tracking.value().playbackUrl + "&ver=2&cpn=abc", "demo-access-token").ok());
     const auto reports = yt.requestsTo("/api/stats/playback");
@@ -446,7 +541,7 @@ TEST_CASE("client: the token goes to YouTube's reporting addresses only") {
         CHECK_FALSE(client.report(url, "demo-access-token").ok());
     }
     CHECK(yt.requests().empty());
-    CHECK_FALSE(client.playbackTracking("dQw4w9WgXcQ", "").ok());  // signed out: no reporting addresses
+    CHECK_FALSE(client.playbackTracking("dQw4w9WgXcQ", "", "AbCdEfGh01234567").ok());  // signed out: no addresses
 }
 
 TEST_CASE("client: a live chat's page with the web client") {

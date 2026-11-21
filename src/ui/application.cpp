@@ -172,10 +172,10 @@ Screen* Application::replaceTop(std::unique_ptr<Screen> screen) {
     return raw;
 }
 
-void Application::showModal(std::unique_ptr<View> modal) {
+void Application::showModal(std::unique_ptr<View> modal, View* returnFocus) {
     modal->width = SizeSpec::fill();
     modal->height = SizeSpec::fill();
-    modals_.push_back({root_->addChild(std::move(modal)), top()});
+    modals_.push_back({root_->addChild(std::move(modal)), top(), returnFocus});
     refocus();
 }
 
@@ -184,6 +184,7 @@ void Application::closeModal() {
         return;
     }
     View* modal = modals_.back().view;
+    View* back = modals_.back().returnFocus;
     modals_.pop_back();
     if (modal == editor_) {
         editor_ = nullptr;
@@ -197,6 +198,10 @@ void Application::closeModal() {
     }
     root_->takeChild(modal).reset();
     refocus();
+    // the view that opened it, if it is still in the scope (checked by address before it is touched)
+    if (back != nullptr && focus_.scope() != nullptr && focus_.scope()->containsPointer(back) && back->canFocus()) {
+        focus_.focus(back);
+    }
 }
 
 void Application::closeModalsOf(const Screen* screen) {

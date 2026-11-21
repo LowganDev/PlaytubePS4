@@ -27,6 +27,8 @@ No ads, sponsor segments skipped, your account if you want it.</p>
   intros and outros.
 - **Made for the controller:** a home by topics with a row of Shorts, a smooth interface at 30 frames a second,
   its buttons always shown on screen.
+- **Your TV's remote:** with HDMI-CEC, Playtube answers the TV's remote, no controller needed (turn on "Enable
+  HDMI Device Link" in the PS4's settings).
 - **Playback up to 1080p and live streams,** with chapters (L1 / R1 jump between them), a picture of where you
   land while seeking, the time the video ends, the volume, the picture's size and subtitles of the size you like.
 - **Shorts** played upright, ↑ / ↓ to the next one.

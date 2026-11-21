@@ -23,22 +23,33 @@ std::vector<WatchReport> play(WatchSegments& segments, double from, double to, b
 
 }  // namespace
 
-TEST_CASE("watch history: the start once, then a part every 30 s of video") {
+TEST_CASE("watch history: the start once, then a part every 2 minutes of video") {
     WatchSegments segments;
-    const auto reports = play(segments, 12, 75);
+    const auto reports = play(segments, 12, 275);
     REQUIRE(reports.size() == 3);
     CHECK(reports[0].start);
     CHECK(reports[0].to == 12);
     CHECK_FALSE(reports[1].start);
     CHECK(reports[1].from == 12);
-    CHECK(reports[1].to == 42);
-    CHECK(reports[2].from == 42);
-    CHECK(reports[2].to == 72);
+    CHECK(reports[1].to == 132);
+    CHECK(reports[2].from == 132);
+    CHECK(reports[2].to == 252);
     const auto last = segments.flush();  // the player closes
     REQUIRE(last);
-    CHECK(last->from == 72);
-    CHECK(last->to == 74);
+    CHECK(last->from == 252);
+    CHECK(last->to == 274);
     CHECK_FALSE(segments.flush());  // nothing more watched since
+}
+
+TEST_CASE("watch history: a short watch is one start and, when the player closes, the part watched") {
+    WatchSegments segments;
+    const auto reports = play(segments, 0, 75);  // under 2 minutes: no part on the way
+    REQUIRE(reports.size() == 1);
+    CHECK(reports[0].start);
+    const auto last = segments.flush();
+    REQUIRE(last);
+    CHECK(last->from == 0);
+    CHECK(last->to == 74);
 }
 
 TEST_CASE("watch history: a pause and a seek end the part watched before them") {

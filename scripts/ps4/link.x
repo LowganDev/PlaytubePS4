@@ -1,8 +1,7 @@
 /* PS4 linker script: the OpenOrbis PS4 Toolchain's link.x (GPL-3.0,
    https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain) with two changes by the Playtube authors:
    - .data also collects .data.* (statics of inline functions, musl's __libc and stdio FILEs, libunwind's
-     cache): left as orphan sections, create-fself did not copy them and they were zeros on the console
-     (docs/ps4-notes.md);
+     cache): left as orphan sections, create-fself did not copy them and they were zeros on the console;
    - .init_array also collects .init_array.* (prioritised constructors), in priority order before the others:
      orphaned, they were outside DT_INIT_ARRAY and never ran. */
 SECTIONS

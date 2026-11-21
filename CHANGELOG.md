@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0 (2026-11-21)
+
+- The player is tidier: one row of round icons under the progress bar, the settings (quality, speed, volume,
+  picture, audio track) in their own panel, the channel's picture beside its name.
+- Added HDMI-CEC support: your TV's remote works in Playtube (arrows, OK, Back), if "Enable HDMI Device Link" is on
+  in the PS4's settings and your TV is compatible.
+- When YouTube's anti-bot check blocks the connection, Playtube says so (the block is temporary and signing in
+  does not lift it) instead of YouTube's "sign in to confirm you're not a bot", and asks YouTube much less while it
+  lasts.
+- What plays next by itself is no longer a video already played since Playtube was started.
+- Where you are in a video is sent to your YouTube history every 2 minutes instead of every 30 seconds.
+- Fixed: the videos watched no longer went into the YouTube history (YouTube now asks for more than before).
+- Fixed: a video whose stream YouTube cut on the way stopped as if it had ended; it now starts again from where it
+  was.
+- Fixed: when a video's page did not come, nothing played after it and the player closed; the page is now asked
+  again.
+- Fixed: some videos filled the log with the same warning.
+
 ## 1.1.1 (2026-11-18)
 
 - Fixed: after Playtube had been open for hours, every video played in 360p whatever the quality chosen.

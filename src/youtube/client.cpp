@@ -282,9 +282,22 @@ core::Result<VideoPage> Client::playlist(const std::string& playlistId, const st
 
 std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHeight, const core::CancelToken& cancel,
                                            std::optional<std::string>& reason,
-                                           std::optional<core::Error>& failure, bool& setback) const {
+                                           std::optional<core::Error>& failure, bool& setback,
+                                           bool& blocked) const {
     setback = false;
+    // Clients the bot check refused a moment ago are left alone; when all are, the first is asked alone (its
+    // answer tells whether the block lifted)
+    std::vector<const ClientProfile*> profiles;
     for (const ClientProfile* profile : {&kVision, &kVr, &kIos, &kAndroid}) {
+        if (!resting(profile)) {
+            profiles.push_back(profile);
+        }
+    }
+    if (profiles.empty()) {
+        profiles.push_back(&kVision);
+    }
+    std::string botWords;  // the bot check's words in this call: another client refused in them is refused by it
+    for (const ClientProfile* profile : profiles) {
         const auto reply =
             parsed<PlayerReply>(post(*profile, "player", {{"videoId", videoId}}, {}, cancel), parsePlayer);
         if (cancel.cancelled()) {
@@ -299,6 +312,19 @@ std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHe
         if (!reply.value().playable) {
             PF_LOG_INFO("youtube: %s refused: %s", profile->name, reply.value().reason.c_str());
             setback = true;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                // (the mobile clients' refusals have another shape than the one parsePlayer knows)
+                const bool bot = reply.value().botCheck ||
+                                 (!botWords.empty() && reply.value().reason == botWords);
+                if (bot) {
+                    botWords = reply.value().reason;
+                    restUntil_[profile] = now() + kClientRest;
+                    blocked = true;
+                } else {
+                    restUntil_.erase(profile);
+                }
+            }
             if (!reason || reason->empty()) {
                 reason = reply.value().reason;  // the first words YouTube gave
             }
@@ -320,6 +346,10 @@ std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHe
                 }
             }
         }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            restUntil_.erase(profile);  // it answered: the bot check let it through
+        }
         if (chosen) {
             chosen->userAgent = profile->userAgent;
             chosen->client = profile->name;
@@ -327,6 +357,12 @@ std::optional<Streams> Client::fromClients(const std::string& videoId, int maxHe
         }
     }
     return std::nullopt;
+}
+
+bool Client::resting(const ClientProfile* profile) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = restUntil_.find(profile);
+    return found != restUntil_.end() && now() < found->second;
 }
 
 core::Result<Streams> Client::streams(const std::string& videoId, int maxHeight, const std::string& invidious,
@@ -339,11 +375,17 @@ core::Result<Streams> Client::streams(const std::string& videoId, int maxHeight,
     std::optional<std::string> reason;  // set when a client refused (YouTube may give no words)
     std::optional<core::Error> failure;
     bool setback = false;
-    auto chosen = fromClients(videoId, maxHeight, cancel, reason, failure, setback);
+    bool blocked = false;  // a client was refused by the bot check
+    auto chosen = fromClients(videoId, maxHeight, cancel, reason, failure, setback, blocked);
     // YouTube stops honouring a visitor id after some hours: the clients' HD files are refused and some clients
     // refused ("not a robot"); only a muxed 360p may still come. A new id brings the quality back.
     const bool fellBack = chosen && setback && !chosen->live && chosen->audio.empty() && chosen->height < maxHeight;
-    if (keptVisitor && !cancel.cancelled() && ((!chosen && reason) || fellBack)) {
+    bool visitorRested = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        visitorRested = now() >= visitorRestUntil_;
+    }
+    if (keptVisitor && visitorRested && !cancel.cancelled() && ((!chosen && reason) || fellBack)) {
         if (chosen) {
             PF_LOG_INFO("youtube: %dp only, trying a new visitor id", chosen->height);
         } else {
@@ -355,9 +397,12 @@ core::Result<Streams> Client::streams(const std::string& videoId, int maxHeight,
         }
         std::optional<std::string> againReason;
         std::optional<core::Error> againFailure;
-        auto again = fromClients(videoId, maxHeight, cancel, againReason, againFailure, setback);
+        auto again = fromClients(videoId, maxHeight, cancel, againReason, againFailure, setback, blocked);
         if (again && (!chosen || again->height > chosen->height || !again->audio.empty())) {
             chosen = std::move(again);
+        } else {
+            std::lock_guard<std::mutex> lock(mutex_);
+            visitorRestUntil_ = now() + kVisitorRest;  // the id was not the cause: no new one for a while
         }
         if (!chosen) {
             reason = againReason;
@@ -385,7 +430,8 @@ core::Result<Streams> Client::streams(const std::string& videoId, int maxHeight,
         return cancelled();
     }
     if (reason) {
-        return core::makeError(core::ErrorKind::Server, *reason);  // YouTube's own words, maybe none
+        // YouTube's own words, maybe none
+        return core::makeError(blocked ? core::ErrorKind::Blocked : core::ErrorKind::Server, *reason);
     }
     if (failure) {
         return *failure;  // no client answered: the network, not YouTube
@@ -454,8 +500,12 @@ core::Result<VideoPage> Client::feedMore(const std::string& continuation, const 
 }
 
 core::Result<PlaybackTracking> Client::playbackTracking(const std::string& videoId, const std::string& accessToken,
+                                                        const std::string& nonce,
                                                         const core::CancelToken& cancel) const {
-    return parsed<PlaybackTracking>(post(kTv, "player", {{"videoId", videoId}}, accessToken, cancel),
+    const std::string playback =
+        R"({"contentPlaybackContext":{"signatureTimestamp":)" + std::to_string(kTvSignatureTimestamp) + "}}";
+    return parsed<PlaybackTracking>(post(kTv, "player", {{"videoId", videoId}, {"cpn", nonce}}, accessToken, cancel,
+                                         {{"playbackContext", playback}}),
                                     parsePlaybackTracking);
 }
 

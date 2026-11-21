@@ -104,7 +104,7 @@ bool sendOne(AppSession& session, const std::string& id, const std::string& nonc
              std::optional<youtube::PlaybackTracking>& tracking, const WatchReport& report) {
     if (!tracking) {
         auto where = session.signedIn<youtube::PlaybackTracking>(
-            [&](const std::string& token) { return session.youtube().playbackTracking(id, token); });
+            [&](const std::string& token) { return session.youtube().playbackTracking(id, token, nonce); });
         if (!where.ok()) {
             PF_LOG_WARN("watch history: %s: %s", id.c_str(), where.error().message.c_str());
             return false;
@@ -137,6 +137,9 @@ bool sendOne(AppSession& session, const std::string& id, const std::string& nonc
 // Queued; a single job of the session's pool sends a video's reports (a slow answer never holds more than one of
 // its threads).
 void WatchHistory::send(const WatchReport& report) {
+    if (!report.start && !kReportParts) {
+        return;
+    }
     {
         std::lock_guard<std::mutex> lock(shared_->mutex);
         if (shared_->failed) {

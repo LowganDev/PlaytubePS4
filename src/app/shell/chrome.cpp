@@ -54,6 +54,50 @@ private:
 
 }  // namespace
 
+int progressPixel(double position, double duration, float width) {
+    if (duration <= 0 || width <= 0) {
+        return -1;
+    }
+    const double part = std::min(1.0, std::max(0.0, position / duration));
+    return static_cast<int>(std::lround(part * static_cast<double>(width)));
+}
+
+std::string compactCount(long long count) {
+    count = std::max(0LL, count);
+    // by thousands, or by ten thousands (万, 만)
+    const long long base = ui::tr("number.compact_base") == "10000" ? 10000 : 1000;
+    if (count < base) {
+        return std::to_string(count);
+    }
+    long long unit = base;
+    int level = 1;
+    while (level < 3 && count / unit >= base) {
+        unit *= base;
+        ++level;
+    }
+    const long long whole = count / unit;
+    std::string number = std::to_string(whole);
+    if (whole < 10) {
+        if (const long long tenth = count % unit * 10 / unit; tenth > 0) {  // cut, as YouTube does
+            number += ui::tr("number.decimal") + std::to_string(tenth);
+        }
+    }
+    return ui::tr("number.compact_" + std::to_string(level), {number});
+}
+
+std::string speedText(double speed) {
+    if (speed == 1) {
+        return ui::tr("player.speed.normal");
+    }
+    char text[16];
+    std::snprintf(text, sizeof text, "%g", speed);
+    std::string out = text;
+    if (const std::size_t dot = out.find('.'); dot != std::string::npos) {
+        out.replace(dot, 1, ui::tr("number.decimal"));
+    }
+    return out + "\xC3\x97";
+}
+
 std::string clockText(double seconds) {
     const long total = seconds > 0 ? static_cast<long>(seconds) : 0;
     char text[32];

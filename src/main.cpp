@@ -77,6 +77,9 @@ int main(int argc, char** argv) {
         usage();
         return 2;
     }
+#if defined(PLAYTUBE_PS4) && defined(PLAYTUBE_START_LOOP)
+    options.maxFrames = 60;  // diagnostic build: started again and again by a script
+#endif
     const int code = playtube::app::run(options);
 #ifdef PLAYTUBE_PS4
     // the PS4 kernel refuses _exit from an app (SIGSYS, seen on the console): the system closes it instead

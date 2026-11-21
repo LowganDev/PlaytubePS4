@@ -20,11 +20,13 @@ struct WatchReport {
 };
 
 // When to report (pure: the player's positions in, the reports out). The start at the first position; a part
-// after 30 s of it, when the video pauses, when it jumps (a seek: the part before the jump), and at flush() (the
+// after 2 minutes of it, when the video pauses, when it jumps (a seek: the part before the jump), and at flush() (the
 // player closes or hides). A live video gets its start only.
 class WatchSegments {
 public:
-    static constexpr double kPart = 30;  // seconds of video a part covers at most
+    // Seconds of video a part covers at most. 30 until 1.1.1; 120 since 1.2.0: four times fewer reports made with
+    // the account, after a signed-in console was refused by YouTube's bot check.
+    static constexpr double kPart = 120;
     static constexpr double kJump = 5;   // a position this far from the last one: a seek
 
     explicit WatchSegments(bool live = false) : live_(live) {}
@@ -47,6 +49,12 @@ private:
 // player: the last part goes out after it closed. A failure is logged and the rest are dropped (no retries).
 class WatchHistory {
 public:
+    // False: only the start of a playback is reported (the video goes into the history without its progress).
+    // Kept as a switch: with a part every 30 s, a signed-in console was refused by YouTube's bot check after
+    // 2 h 35 of autoplay (2026-11-19); with nothing reported, not in 4 h; with a part every 2 minutes, not in
+    // 45 minutes and 12 videos (longer runs not made).
+    static constexpr bool kReportParts = true;
+
     WatchHistory(AppSession& session, std::string videoId);
     void setLive(bool live) { segments_.setLive(live); }
     void update(double position, bool paused);

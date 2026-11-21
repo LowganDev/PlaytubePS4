@@ -109,6 +109,32 @@ TEST_CASE("a modal dialog keeps the focus until closed") {
     CHECK_FALSE(rig.app->hasModal());
 }
 
+TEST_CASE("a modal shown with a view to come back to gives it the focus when it closes, while it can take it") {
+    Rig rig;
+    auto* home = static_cast<ButtonsScreen*>(rig.app->push(std::make_unique<ButtonsScreen>()));
+    rig.frames();
+    rig.app->handle(press(Action::Right));
+    REQUIRE(rig.app->focus().focused() == home->second);  // what the screen remembers
+    rig.app->showModal(ui::makeDialog("Title", "", {{"OK", [] {}}}), home->first);
+    rig.frames();
+    CHECK_FALSE(home->isAncestorOf(rig.app->focus().focused()));
+    rig.app->handle(press(Action::Back));
+    rig.frames();
+    CHECK_FALSE(rig.app->hasModal());
+    CHECK(rig.app->focus().focused() == home->first);
+    // without one: the screen's own entry, as before
+    rig.app->handle(press(Action::Right));
+    rig.app->showModal(ui::makeDialog("Title", "", {{"OK", [] {}}}));
+    rig.frames();
+    rig.app->handle(press(Action::Back));
+    CHECK(rig.app->focus().focused() == home->second);
+    // the view hidden meanwhile: the screen's entry
+    rig.app->showModal(ui::makeDialog("Title", "", {{"OK", [] {}}}), home->first);
+    home->first->visible = false;
+    rig.app->handle(press(Action::Back));
+    CHECK(rig.app->focus().focused() == home->second);
+}
+
 TEST_CASE("the dialogs of a screen close when the screen goes, the ones below stay") {
     Rig rig;
     rig.app->push(std::make_unique<ButtonsScreen>());

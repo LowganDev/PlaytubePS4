@@ -28,7 +28,7 @@ bool gModulesLoaded = false;
 bool gRunning = false;
 
 // sceImeDialog option bits (the OpenOrbis headers only have the raw `option` field). The firmware refuses the
-// password option (0x80bc0030) unless the type is ORBIS_TYPE_BASIC_LATIN (docs/ps4-notes.md).
+// password option (0x80bc0030) unless the type is ORBIS_TYPE_BASIC_LATIN.
 constexpr uint32_t kImeOptionNoAutoCapitalization = 0x02;
 constexpr uint32_t kImeOptionPassword = 0x04;
 constexpr uint32_t kImeOptionNoLearning = 0x20;

@@ -13,10 +13,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "core/boot_trace.hpp"
 #include "core/log.hpp"
 #include "render/raster.hpp"
 
@@ -52,11 +54,23 @@ struct TextureEntry {
 // Threads that each replay the frame into their own band; the caller's thread takes band 0.
 class Workers {
 public:
+    // The threads the system gives: on the console, a start right after the package was installed has ended
+    // here twice (CE-34878-0, 2026-11-20 and 21; the boot trace stopped between "canvas: threads" and "canvas:
+    // nanovg"). A thread that cannot be made is no reason to close: the frame is drawn with those there are.
     explicit Workers(std::size_t threads) {
         for (std::size_t i = 0; i < threads; ++i) {
-            threads_.emplace_back([this, i] { loop(i + 1); });
+            core::bootMark("canvas: thread", static_cast<long>(i + 1));
+            try {
+                threads_.emplace_back([this, i] { loop(i + 1); });
+            } catch (const std::system_error& error) {
+                core::bootMark("canvas: thread refused", error.code().value());
+                PF_LOG_WARN("renderer: thread %zu of %zu cannot be made (%d: %s): drawing with %zu", i + 1, threads,
+                            error.code().value(), error.what(), threads_.size() + 1);
+                break;
+            }
         }
     }
+    std::size_t size() const { return threads_.size(); }
     ~Workers() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -554,6 +568,9 @@ NVGcontext* createSoftwareCanvas(Surface& surface, int threadCount) {
     }
     const int threads = std::clamp(threadCount, 1, std::max(1, surface.height));
     const int count = std::min(threads * kBandsPerThread, std::max(1, surface.height));
+    // The steps go to the console's boot trace: once (2026-11-20, 1 start in 16) Playtube closed with CE-34878-0
+    // somewhere in this function, and nothing said where.
+    core::bootMark("canvas: backend");
     auto* backend = new Backend;  // owned by NanoVG: freed by renderDelete, also when creation fails
     backend->surface = &surface;
     backend->threads = static_cast<std::size_t>(threads);
@@ -562,9 +579,15 @@ NVGcontext* createSoftwareCanvas(Surface& surface, int threadCount) {
         backend->bandOrder.push_back(static_cast<std::size_t>(i));
     }
     backend->bandCycles.assign(backend->bands.size(), 0);
+    core::bootMark("canvas: threads", threads);
     if (threads > 1) {
         backend->workers = std::make_unique<Workers>(static_cast<std::size_t>(threads - 1));
+        backend->threads = backend->workers->size() + 1;  // fewer when the system refused some
+        if (backend->workers->size() == 0) {
+            backend->workers.reset();
+        }
     }
+    core::bootMark("canvas: nanovg");
     NVGparams params{};
     params.userPtr = backend;
     params.edgeAntiAlias = 1;
@@ -580,7 +603,9 @@ NVGcontext* createSoftwareCanvas(Surface& surface, int threadCount) {
     params.renderStroke = renderStroke;
     params.renderTriangles = renderTriangles;
     params.renderDelete = renderDelete;
-    return nvgCreateInternal(&params);
+    NVGcontext* canvas = nvgCreateInternal(&params);
+    core::bootMark("canvas: ready", canvas != nullptr ? 1 : 0);
+    return canvas;
 }
 
 

@@ -8,7 +8,7 @@ if(PLATFORM_PS4 AND NOT CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{OPENORBIS}/cmake/ps4.cmake" CACHE FILEPATH "")
 endif()
 
-project(Playtube VERSION 1.1.1 LANGUAGES C CXX)
+project(Playtube VERSION 1.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,6 +16,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(PLAYTUBE_DEV "Development app (PLTB00001, folder PlaytubeDev) installed beside the release app" OFF)
+# Diagnostic builds only (never a release): the app closes by itself a second after its first frame, so that a
+# script can start it again and again (to look for a crash that shows once in many starts).
+option(PLAYTUBE_START_LOOP "Diagnostic: close a second after the first frame" OFF)
+if(PLAYTUBE_START_LOOP)
+    add_compile_definitions(PLAYTUBE_START_LOOP=1)
+endif()
 if(PLAYTUBE_DEV)
     add_compile_definitions(PLAYTUBE_DEV=1)
 endif()
@@ -104,13 +110,15 @@ playtube_set_warnings(playtube_render)
 add_library(playtube_platform STATIC
     src/platform/input.cpp
     src/platform/events.cpp
+    src/platform/remote.cpp
     src/platform/language.cpp
     src/platform/sdl_platform.cpp
     src/render/canvas.cpp
 )
 if(PLATFORM_PS4)
     target_sources(playtube_platform PRIVATE src/platform/ps4/backend_ps4.cpp src/platform/ps4/firmware_shaders.cpp
-        src/platform/ps4/present_ps4.cpp src/platform/ps4/text_input_ps4.cpp)
+        src/platform/ps4/present_ps4.cpp src/platform/ps4/text_input_ps4.cpp
+        src/platform/ps4/remote_ps4.cpp)
     option(PLAYTUBE_GPU_PROBE "PS4: log GPU and firmware shader diagnostics at startup" OFF)
     if(PLAYTUBE_GPU_PROBE)
         target_sources(playtube_platform PRIVATE src/platform/ps4/gpu_probe_ps4.cpp)
@@ -127,6 +135,7 @@ playtube_set_warnings(playtube_platform)
 add_library(playtube_ui STATIC
     src/ui/theme.cpp
     src/ui/halo.cpp
+    src/ui/icon_button.cpp
     src/ui/sprites.cpp
     src/ui/svg_shapes.cpp
     src/ui/animation.cpp
@@ -154,6 +163,7 @@ playtube_set_warnings(playtube_ui)
 # video playback: libmpv with its software renderer (no UI)
 add_library(playtube_player STATIC
     src/player/engine.cpp
+    src/player/repeats.cpp
     src/player/seek.cpp
     src/player/trickplay.cpp
     src/player/webp.cpp
@@ -189,12 +199,14 @@ add_library(playtube_core STATIC
     src/app/shell/playlist_screen.cpp
     src/app/shell/chat_panel.cpp
     src/app/shell/comments_panel.cpp
+    src/app/shell/autoplay.cpp
     src/app/shell/chrome.cpp
     src/app/shell/clock.cpp
     src/app/shell/screensaver.cpp
     src/app/shell/trickplay_preview.cpp
     src/app/shell/watch_history.cpp
     src/app/shell/player_screen.cpp
+    src/app/shell/player_settings.cpp
     src/app/shell/row_screens.cpp
     src/app/shell/licenses.cpp
     src/app/shell/nav_bar.cpp

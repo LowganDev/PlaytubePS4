@@ -146,6 +146,10 @@ struct CaptionTrack {
 struct PlayerReply {
     bool playable = false;
     std::string reason;  // why YouTube refused, in the requested language
+    // Refused by the bot check ("Sign in to confirm you're not a bot"): the connection is flagged for a while,
+    // whatever the video. YouTube gives no code for it: LOGIN_REQUIRED with a reason and nothing else (an age gate
+    // carries desktopLegacyAgeGateReason, a private video `messages`, the others an errorScreen).
+    bool botCheck = false;
     std::string title;
     std::string channelId;
     int durationSeconds = 0;
@@ -155,6 +159,7 @@ struct PlayerReply {
     std::vector<CaptionTrack> captions;
     std::string storyboardSpec;  // storyboards.playerStoryboardSpecRenderer.spec: the seek preview's pictures
 };
+
 
 // Where YouTube's apps report watching for a signed-in account (the player reply's `playbackTracking`)
 struct PlaybackTracking {

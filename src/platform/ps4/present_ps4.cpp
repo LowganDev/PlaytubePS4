@@ -11,7 +11,7 @@ namespace playtube::platform {
 
 namespace {
 
-// The firmware shaders that draw a texture upright (docs/ps4-notes.md).
+// The firmware shaders that draw a texture upright.
 constexpr const char* kVertexShader = "swordfish/vpBasic.vert";
 constexpr const char* kFragmentShader = "swordfish/fpAlphaTexture.frag";
 constexpr bool kUnitSquare = false;

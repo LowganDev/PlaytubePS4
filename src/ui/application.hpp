@@ -58,8 +58,10 @@ public:
     Screen* top() const;
     std::size_t depth() const { return screens_.size(); }
 
-    // A modal belongs to the screen on top when it opens and closes when that screen goes.
-    void showModal(std::unique_ptr<View> modal);
+    // A modal belongs to the screen on top when it opens and closes when that screen goes. When it closes the focus
+    // goes back to `returnFocus` if that view is still there and can take it (else to the scope's entry).
+    // The returned focus is checked with `canFocus()` on the view itself (a view in a hidden subtree may take it back).
+    void showModal(std::unique_ptr<View> modal, View* returnFocus = nullptr);
     void closeModal();
     bool hasModal() const { return !modals_.empty(); }
 
@@ -130,6 +132,7 @@ private:
     struct OpenModal {
         View* view;
         const Screen* owner;
+        View* returnFocus;  // focused again when it closes (compared by address until found in the scope)
     };
     std::vector<OpenModal> modals_;
 

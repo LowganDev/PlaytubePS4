@@ -12,6 +12,7 @@
 #include <strings.h>
 
 #include "core/log.hpp"
+#include "player/repeats.hpp"
 
 namespace playtube::player {
 
@@ -25,6 +26,7 @@ struct Engine::Impl {
     std::string error;
     double renderMs = 0;
     std::vector<std::uint8_t> aligned;  // the picture drawn on 64-byte rows, when the frame's are not
+    Repeats repeats;                    // mpv's messages already in the log
 
     ~Impl() {
         if (render != nullptr) {
@@ -294,7 +296,12 @@ std::vector<EngineEvent> Engine::drainEvents() {
             while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
                 line.pop_back();
             }
-            PF_LOG_WARN("mpv [%s]: %s", message->prefix != nullptr ? message->prefix : "", line.c_str());
+            // a message some videos repeat every few seconds is written once, then with its count
+            const std::string text = std::string("mpv [") + (message->prefix != nullptr ? message->prefix : "") +
+                                     "]: " + line;
+            if (const auto written = impl_->repeats.line(text)) {
+                PF_LOG_WARN("%s", written->c_str());
+            }
             break;
         }
         case MPV_EVENT_FILE_LOADED:

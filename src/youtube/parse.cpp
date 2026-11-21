@@ -647,6 +647,9 @@ core::Result<PlayerReply> parsePlayer(std::string_view text) {
     if (reply.reason.empty()) {
         reply.reason = readText(at(at(at(status, "errorScreen"), "playerErrorMessageRenderer"), "subreason"));
     }
+    reply.botCheck = json::string(status, "status") == "LOGIN_REQUIRED" && !reply.reason.empty() &&
+                     at(status, "desktopLegacyAgeGateReason") == nullptr && at(status, "messages") == nullptr &&
+                     at(status, "errorScreen") == nullptr;
     V details = at(root, "videoDetails");
     reply.title = json::string(details, "title");
     reply.channelId = json::string(details, "channelId");
@@ -1052,7 +1055,14 @@ core::Result<PlaybackTracking> parsePlaybackTracking(std::string_view text) {
     out.playbackUrl = json::string(at(tracking, "videostatsPlaybackUrl"), "baseUrl");
     out.watchtimeUrl = json::string(at(tracking, "videostatsWatchtimeUrl"), "baseUrl");
     if (out.playbackUrl.empty()) {
-        return badReply("player: no playback tracking");
+        // why: YouTube's own status and words (a refused player reply carries no reporting address)
+        V status = at(doc->root(), "playabilityStatus");
+        std::string reason = json::string(status, "reason");
+        if (reason.empty()) {
+            reason = readText(at(at(at(status, "errorScreen"), "playerErrorMessageRenderer"), "subreason"));
+        }
+        return core::makeError(core::ErrorKind::BadResponse,
+                               "player: no playback tracking (" + json::string(status, "status") + ": " + reason + ")");
     }
     return out;
 }

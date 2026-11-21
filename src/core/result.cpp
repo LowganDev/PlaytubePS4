@@ -20,6 +20,8 @@ const char* errorKindName(ErrorKind kind) {
         return "NotFound";
     case ErrorKind::Server:
         return "Server";
+    case ErrorKind::Blocked:
+        return "Blocked";
     case ErrorKind::BadResponse:
         return "BadResponse";
     case ErrorKind::UnsupportedServer:

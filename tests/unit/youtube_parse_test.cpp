@@ -253,6 +253,24 @@ TEST_CASE("token errors: only a revoked or refused sign-in is a refusal") {
     }
 }
 
+TEST_CASE("player: the bot check is told from an age gate, a private video and any other refusal") {
+    const auto bot = parsePlayer(fixture("player_refused.json"));
+    REQUIRE(bot.ok());
+    CHECK_FALSE(bot.value().playable);
+    CHECK(bot.value().botCheck);
+    const auto age = parsePlayer(R"({"playabilityStatus":{"status":"LOGIN_REQUIRED",
+        "reason":"Connectez-vous pour confirmer votre \u00e2ge","desktopLegacyAgeGateReason":1}})");
+    REQUIRE(age.ok());
+    CHECK_FALSE(age.value().botCheck);
+    const auto priv = parsePlayer(R"({"playabilityStatus":{"status":"LOGIN_REQUIRED",
+        "messages":["Cette vid\u00e9o est priv\u00e9e."]}})");
+    REQUIRE(priv.ok());
+    CHECK_FALSE(priv.value().botCheck);
+    const auto gone = parsePlayer(R"({"playabilityStatus":{"status":"ERROR","reason":"Vid\u00e9o non disponible"}})");
+    REQUIRE(gone.ok());
+    CHECK_FALSE(gone.value().botCheck);
+}
+
 TEST_CASE("player: the original audio track is marked") {
     const auto reply = parsePlayer(
         R"({"playabilityStatus":{"status":"OK"},"streamingData":{"adaptiveFormats":[)"

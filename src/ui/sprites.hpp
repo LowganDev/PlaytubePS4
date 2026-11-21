@@ -14,13 +14,9 @@ namespace playtube::ui {
 std::vector<std::uint8_t> verticalFadeImage(int width, int height, int ramp, Color color, std::uint8_t from,
                                             std::uint8_t to);
 
-// The same as an image of the canvas, made once and kept (made again when the theme changes). The software
-// renderer draws a gradient through its general per-pixel shader, several times slower than an image drawn 1:1:
-// large fades drawn every frame (the hints' fade, the shade over a backdrop) use this.
-int verticalFadeSprite(NVGcontext* vg, int width, int height, int ramp, Color color, std::uint8_t from,
-                       std::uint8_t to);
-
-// Draws it at (x, y) on whole pixels.
+// Draws the fade at (x, y) on whole pixels, as solid rows (one rectangle per run of rows with the same alpha): the
+// renderer's constant-colour path, several times cheaper than the image (measured on the console, 2026-11-20: the
+// player's shade as an image took 16 ms of a 21 ms frame).
 void drawVerticalFade(NVGcontext* vg, float x, float y, int width, int height, int ramp, Color color,
                       std::uint8_t from, std::uint8_t to);
 

@@ -11,6 +11,7 @@
 
 #include "app/shell/cards.hpp"
 #include "app/shell/nav_bar.hpp"
+#include "app/shell/player_settings.hpp"
 #include "app/shell/screens.hpp"
 #include "app/shell/session.hpp"
 #include "core/task.hpp"
@@ -19,6 +20,7 @@
 #include "support/fixed_metrics.hpp"
 #include "ui/application.hpp"
 #include "ui/i18n.hpp"
+#include "ui/icon_button.hpp"
 #include "ui/label.hpp"
 #include "ui/theme.hpp"
 #include "ui/widgets.hpp"
@@ -140,13 +142,16 @@ inline bool showsSomewhere(ui::Application& app, const std::string& part) {
     return false;
 }
 
-// the visible button, tab or value row whose first label is `text`
+// the visible button, tab, value row or player setting whose first label is `text`, or the round icon named `text`
 inline ui::View* findPressable(ui::View& view, const std::string& text) {
     if (!view.visible) {
         return nullptr;
     }
+    if (const auto* icon = dynamic_cast<const ui::IconButton*>(&view)) {
+        return icon->label() == text ? &view : nullptr;
+    }
     if (dynamic_cast<ui::Button*>(&view) != nullptr || dynamic_cast<ui::ValueRow*>(&view) != nullptr ||
-        dynamic_cast<app::NavTab*>(&view) != nullptr) {
+        dynamic_cast<app::NavTab*>(&view) != nullptr || dynamic_cast<app::PlayerSettingLine*>(&view) != nullptr) {
         std::vector<std::string> labels;
         texts(view, labels);
         if (!labels.empty() && labels.front() == text) {

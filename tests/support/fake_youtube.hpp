@@ -51,6 +51,8 @@ public:
     void publishRelease(std::string version, std::string package);
     // The video page (WEB next) gets these chapters: (start in ms, title) pairs.
     void setChapters(std::vector<std::pair<int, std::string>> chapters);
+    // The signed-in video state (TV next) without its like count, as YouTube sometimes answers.
+    void hideLikeCount();
     // README screenshots: the signed-in home's feeds from `dir` (recommended.json, subscriptions.json: TV tiles)
     // and their pictures from dir/img/<path> (else the generated ones).
     void setShowcase(std::string dir);
@@ -81,6 +83,7 @@ private:
     std::string refreshError_;
     int tokenDelayMs_ = 0;
     std::vector<std::pair<int, std::string>> chapters_;
+    bool likeCountHidden_ = false;
     std::string releaseVersion_;
     std::string releasePackage_;
 };

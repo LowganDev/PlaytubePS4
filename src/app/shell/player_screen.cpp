@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,8 +12,10 @@
 #include <utility>
 #include <vector>
 
+#include "app/shell/autoplay.hpp"
 #include "app/shell/chrome.hpp"
 #include "app/shell/clock.hpp"
+#include "app/shell/player_settings.hpp"
 #include "app/shell/trickplay_preview.hpp"
 #include "app/shell/watch_history.hpp"
 #include "youtube/storyboard.hpp"
@@ -28,8 +31,10 @@
 #include "ui/context.hpp"
 #include "ui/draw.hpp"
 #include "ui/i18n.hpp"
+#include "ui/icon_button.hpp"
 #include "ui/image_view.hpp"
 #include "ui/label.hpp"
+#include "ui/sprites.hpp"
 #include "ui/theme.hpp"
 #include "ui/video_source.hpp"
 #include "ui/widgets.hpp"
@@ -43,18 +48,52 @@ constexpr std::int64_t kBarMs = 4000;        // the bar hides after 4 s without 
 constexpr std::int64_t kHoldGapMs = 300;     // presses closer than this are one held button
 constexpr double kNextAheadSeconds = 10;     // "À suivre" shows 10 s before the end
 constexpr double kMinDurationForNext = 30;   // not for very short videos
-const ui::Color kSegmentColor{0xFF, 0xD4, 0x00, 0xFF};
+constexpr int kPageTries = 3;                // the video page: asked this many times in all when it fails
+constexpr std::int64_t kPageRetryMs = 5000;  // 5 s after the first failure, 10 s after the second
 const int kHeights[] = {360, 480, 720, 1080};
 
-// The progress bar with the SponsorBlock segments drawn over it.
+// The bar at 1080p (the approved canvas at 1280x720, times 1.5)
+constexpr float kSide = 96;          // left and right margins
+constexpr float kBottom = 60;        // under the icon row
+constexpr float kGap = 21;           // between the bar's lines
+constexpr float kHeadingGap = 9;     // between the title and the channel line
+constexpr float kTitleSize = 42;     // semibold
+constexpr float kChannelSize = 27;   // the channel line
+constexpr float kAvatar = 42;        // the channel's initial in a circle
+constexpr float kTimesSize = 26;     // the times line
+constexpr float kRowTop = 51;        // above the icons: room for the focused one's name
+constexpr float kIconGap = 21;
+constexpr float kTrack = 6;          // the progress track's thickness
+constexpr float kHead = 21;          // the round head at the position
+constexpr float kProgressHeight = 24;
+// The gradient, 560 px in all: transparent to 65 % before the title (white text must read over a white picture),
+// to 85 % under the channel line, then to 94 % at the bottom
+constexpr int kShadeTop = 140;
+constexpr int kShadeMiddle = 120;
+constexpr int kShadeBottom = 300;
+constexpr std::uint8_t kShadeAtTitle = 0xA6;
+constexpr std::uint8_t kShadeAtChannel = 0xD9;
+constexpr std::uint8_t kShadeAtBottom = 0xF0;
+const ui::Color kPlayedColor{0xFF, 0x00, 0x33, 0xFF};   // YouTube red: the part played and the head
+const ui::Color kSegmentColor{0xF5, 0xC5, 0x18, 0xFF};  // SponsorBlock
+const ui::Color kShadeColor{0x07, 0x07, 0x08, 0xFF};    // the gradient and the chapters' gaps
+const ui::Color kAvatarColor{0x5B, 0x61, 0x70, 0xFF};
+
+// The progress bar: a thin track, the part played and its round head in red, the SponsorBlock segments in yellow,
+// a gap where each chapter begins.
 class SegmentBar : public ui::View {
 public:
-    SegmentBar() { height = ui::SizeSpec::fixed(8); }
+    SegmentBar() { height = ui::SizeSpec::fixed(kProgressHeight); }
     void set(double position, double duration, const std::vector<youtube::Segment>& segments) {
-        if (position == position_ && duration == duration_ && segments.size() == segments_.size()) {
+        // The position moves at every frame, the bar's head a pixel every second or so: drawn again only when the
+        // head moves (a redraw is the whole bar with its shade, 21 ms on the console while a video decodes).
+        const int pixel = progressPixel(position, duration, frame.width);
+        const bool same = duration == duration_ && segments.size() == segments_.size();
+        position_ = position;
+        if (same && pixel == pixel_ && pixel >= 0) {
             return;
         }
-        position_ = position;
+        pixel_ = pixel;
         duration_ = duration;
         segments_ = segments;
         markDirty();
@@ -65,10 +104,10 @@ public:
         markDirty();
     }
     void draw(NVGcontext* vg) const override {
-        const float radius = frame.height / 2;
+        const float top = (frame.height - kTrack) / 2;
         nvgBeginPath(vg);
-        nvgRoundedRect(vg, 0, 0, frame.width, frame.height, radius);
-        nvgFillColor(vg, ui::nvgColor(ui::withAlpha(ui::theme().text, 0x40)));
+        nvgRoundedRect(vg, 0, top, frame.width, kTrack, kTrack / 2);
+        nvgFillColor(vg, nvgRGBA(0xFF, 0xFF, 0xFF, 0x47));  // 28 %
         nvgFill(vg);
         if (duration_ <= 0) {
             return;
@@ -78,31 +117,96 @@ public:
         };
         for (const youtube::Segment& segment : segments_) {
             nvgBeginPath(vg);
-            nvgRect(vg, at(segment.start), 0, std::max(2.0f, at(segment.end) - at(segment.start)), frame.height);
+            nvgRect(vg, at(segment.start), top, std::max(2.0f, at(segment.end) - at(segment.start)), kTrack);
             nvgFillColor(vg, ui::nvgColor(kSegmentColor));
             nvgFill(vg);
         }
+        const float played = at(position_);
         nvgBeginPath(vg);
-        nvgRoundedRect(vg, 0, 0, at(position_), frame.height, radius);
-        nvgFillColor(vg, ui::nvgColor(ui::theme().accent));
+        nvgRoundedRect(vg, 0, top, played, kTrack, kTrack / 2);
+        nvgFillColor(vg, ui::nvgColor(kPlayedColor));
         nvgFill(vg);
-        // chapters: a dark notch where each one begins (the bar reads as parts, as on YouTube)
+        // chapters: a dark gap where each one begins (the bar reads as parts, as on YouTube)
         for (double start : chapters_) {
             if (start <= 0 || start >= duration_) {
                 continue;
             }
             nvgBeginPath(vg);
-            nvgRect(vg, at(start) - 2, 0, 4, frame.height);
-            nvgFillColor(vg, nvgRGBA(0x10, 0x10, 0x10, 0xE0));
+            nvgRect(vg, at(start) - 2, top, 4, kTrack);
+            nvgFillColor(vg, ui::nvgColor(kShadeColor));
             nvgFill(vg);
         }
+        nvgBeginPath(vg);
+        nvgCircle(vg, played, frame.height / 2, kHead / 2);
+        nvgFillColor(vg, ui::nvgColor(kPlayedColor));
+        nvgFill(vg);
     }
 
 private:
     double position_ = -1;
     double duration_ = 0;
+    int pixel_ = -1;  // where the head was drawn
     std::vector<youtube::Segment> segments_;
     std::vector<double> chapters_;
+};
+
+// The dark gradient the bar stands on, at the bottom of the screen (no panel behind the bar): three fades baked once
+// (ui::drawVerticalFade), drawn as pictures.
+class BarShade : public ui::View {
+public:
+    BarShade() {
+        width = ui::SizeSpec::fill();
+        height = ui::SizeSpec::fill();
+    }
+    void draw(NVGcontext* vg) const override {
+        const int across = static_cast<int>(frame.width);
+        const float bottom = frame.height;
+        ui::drawVerticalFade(vg, 0, bottom - kShadeBottom - kShadeMiddle - kShadeTop, across, kShadeTop, kShadeTop,
+                             kShadeColor, 0, kShadeAtTitle);
+        ui::drawVerticalFade(vg, 0, bottom - kShadeBottom - kShadeMiddle, across, kShadeMiddle, kShadeMiddle,
+                             kShadeColor, kShadeAtTitle, kShadeAtChannel);
+        ui::drawVerticalFade(vg, 0, bottom - kShadeBottom, across, kShadeBottom, kShadeBottom, kShadeColor,
+                             kShadeAtChannel, kShadeAtBottom);
+    }
+};
+
+// The channel's initial in a grey circle, at the start of the channel line.
+class ChannelInitial : public ui::Stack {
+public:
+    ChannelInitial() {
+        width = ui::SizeSpec::fixed(kAvatar);
+        height = ui::SizeSpec::fixed(kAvatar);
+        cornerRadius = kAvatar / 2;
+        background = kAvatarColor;
+        horizontal = ui::CrossAlign::Center;
+        vertical = ui::CrossAlign::Center;
+        letter_ = add<ui::Label>("", ui::FontStyle{21, ui::FontWeight::Bold});
+        letter_->color = ui::theme().text;
+    }
+    void setLetter(const std::string& letter) {
+        if (letter != letter_->text()) {
+            letter_->setText(letter);
+        }
+    }
+    // The channel's own picture over the initial (which shows until it comes, and when it does not)
+    void setPicture(const std::string& url) {
+        if (picture_ == nullptr) {
+            picture_ = add<ui::ImageView>();
+            picture_->width = ui::SizeSpec::fixed(kAvatar);
+            picture_->height = ui::SizeSpec::fixed(kAvatar);
+            picture_->cornerRadius = kAvatar / 2;
+            picture_->placeholder = ui::Color{0, 0, 0, 0};
+        }
+        picture_->setUrl(url);
+    }
+    void onThemeChanged() override {
+        letter_->color = ui::theme().text;
+        ui::Stack::onThemeChanged();
+    }
+
+private:
+    ui::Label* letter_;
+    ui::ImageView* picture_ = nullptr;
 };
 
 struct Extras {
@@ -130,25 +234,22 @@ player::EngineOptions engineOptions(const AppSession& session, const std::string
     return options;
 }
 
-// "521 783": a count with the language's grouping of thousands
-std::string groupedNumber(std::int64_t value) {
-    const std::string digits = std::to_string(value < 0 ? 0 : value);
-    const std::string separator = ui::tr("number.group");
-    std::string out;
-    for (std::size_t i = 0; i < digits.size(); ++i) {
-        if (i > 0 && (digits.size() - i) % 3 == 0) {
-            out += separator;
-        }
-        out += digits[i];
-    }
-    return out;
+// when a video ends if it plays on from `position` at `speed` (the clock's seconds)
+std::int64_t endsAtSeconds(const AppSession& session, double duration, double position, double speed) {
+    const double left = (duration - position) / (speed > 0 ? speed : 1.0);
+    return session.clockNow() + static_cast<std::int64_t>(left > 0 ? left + 0.5 : 0);
 }
 
-// "21:47": when a video ends if it plays on from `position` at `speed` (the console's local time)
-std::string endsAtText(const AppSession& session, double duration, double position, double speed) {
-    const double left = (duration - position) / (speed > 0 ? speed : 1.0);
-    const std::int64_t end = session.clockNow() + static_cast<std::int64_t>(left > 0 ? left + 0.5 : 0);
-    return clock24(end, session.utcOffsetMinutes(end));
+const char* const kFits[] = {"fit", "fill", "stretch"};
+const int kSizes[] = {100, 95, 90, 85, 80};  // a smaller picture only makes sense whole
+
+// "Entière", "Entière · 90 %", "Remplir l'écran": how the picture fills the screen
+std::string pictureText(const std::string& fit, int size) {
+    std::string name = ui::tr("player.picture." + fit);
+    if (fit == "fit" && size != 100) {
+        name += " \xC2\xB7 " + std::to_string(size) + " %";
+    }
+    return name;
 }
 
 class PlayerScreen : public ShellScreen, public ui::VideoSource {
@@ -160,6 +261,7 @@ public:
           queue_(std::move(queue)),
           shorts_(shorts),
           index_(index) {
+        rememberPlayed(session.played(), videoId_);  // what plays next by itself is not a video already played
         // from a playlist: its next video comes after this one (else the related videos); Shorts loop instead
         for (std::size_t i = index + 1; !shorts_ && queue_ && i < queue_->size(); ++i) {
             const youtube::Video& video = (*queue_)[i];
@@ -231,6 +333,7 @@ private:
     // ---- overlay
 
     void buildOverlay() {
+        hidesHints = true;  // the bar and its icons say enough while a video plays
         auto* middle = add<ui::Stack>();
         middle->width = ui::SizeSpec::fill();
         middle->height = ui::SizeSpec::fill();
@@ -238,11 +341,13 @@ private:
         middle->vertical = ui::CrossAlign::Center;
         spinner_ = middle->add<ui::Spinner>();
 
+        shade_ = add<BarShade>();  // under the bar, shown with it
+
         auto* bottom = add<ui::Box>(ui::Axis::Column);
         bottom->width = ui::SizeSpec::fill();
         bottom->height = ui::SizeSpec::fill();
         bottom->align = ui::Align::End;
-        bottom->padding = {0, 96, 64, 96};
+        bottom->padding = {0, kSide, kBottom, kSide};
         bottom->gap = ui::theme().spacingL;
 
         // "À suivre": the next video, its picture, title and countdown, at the right
@@ -271,29 +376,30 @@ private:
         nextCountdown_ = nextTexts->add<ui::Label>("", bodyText());
         nextCountdown_->color = ui::theme().textSecondary;
 
-        menu_ = bottom->add<ui::Box>(ui::Axis::Column);
-        menu_->gap = ui::theme().spacingM;
-        menu_->visible = false;
-        actions_ = menu_->add<ui::Box>(ui::Axis::Row);  // about the video
-        actions_->gap = ui::theme().spacingM;
-        actions_->crossAlign = ui::CrossAlign::Center;
-        playback_ = menu_->add<ui::Box>(ui::Axis::Row);  // about the playback
-        playback_->gap = ui::theme().spacingM;
-
+        // the bar, top to bottom: title, channel line, progress, times, icon row (no panel: the gradient under it)
         bar_ = bottom->add<ui::Box>(ui::Axis::Column);
         bar_->width = ui::SizeSpec::fill();
-        bar_->background = ui::withAlpha(ui::theme().surfaceRaised, 0xD9);
-        bar_->cornerRadius = ui::theme().radius;
-        bar_->padding = ui::Insets::all(ui::theme().spacingL);
-        bar_->gap = ui::theme().spacingM;
-        title_ = bar_->add<ui::Label>("", titleText(ui::FontWeight::SemiBold));
+        bar_->gap = kGap;
+        auto* heading = bar_->add<ui::Box>(ui::Axis::Column);
+        heading->width = ui::SizeSpec::fill();
+        heading->gap = kHeadingGap;
+        title_ = heading->add<ui::Label>("", ui::FontStyle{kTitleSize, ui::FontWeight::SemiBold});
         title_->width = ui::SizeSpec::fill();
-        channel_ = bar_->add<ui::Label>("", bodyText());
+        auto* channelLine = heading->add<ui::Box>(ui::Axis::Row);
+        channelLine->width = ui::SizeSpec::fill();
+        channelLine->gap = 15;
+        channelLine->crossAlign = ui::CrossAlign::Center;
+        avatar_ = channelLine->add<ChannelInitial>();
+        avatar_->visible = false;
+        channel_ = channelLine->add<ui::Label>("", ui::FontStyle{kChannelSize, ui::FontWeight::Regular});
+        channel_->width = ui::SizeSpec::fill();
         channel_->color = ui::theme().textSecondary;
         progress_ = bar_->add<SegmentBar>();
         progress_->width = ui::SizeSpec::fill();
+        // "2:41 / 10:23 · <chapter>" at the left (the position brighter), "Se termine à 21:47" at the right, always whole
         auto* times = bar_->add<ui::Box>(ui::Axis::Row);
-        times->gap = ui::theme().spacingM;
+        times->width = ui::SizeSpec::fill();
+        times->gap = 8;  // a space
         times->crossAlign = ui::CrossAlign::Center;
         live_ = times->add<ui::Label>(ui::tr("video.live"),
                                       ui::FontStyle{ui::theme().fontSmall, ui::FontWeight::SemiBold});
@@ -301,148 +407,291 @@ private:
         live_->cornerRadius = 6;
         live_->padding = {2, 8, 2, 8};
         live_->visible = false;
-        time_ = times->add<ui::Label>("", bodyText());
-        time_->color = ui::theme().textSecondary;
+        position_ = times->add<ui::Label>("", ui::FontStyle{kTimesSize, ui::FontWeight::Regular});
+        position_->color = ui::theme().text;
+        rest_ = times->add<ui::Label>("", ui::FontStyle{kTimesSize, ui::FontWeight::Regular});
+        rest_->color = ui::theme().textSecondary;
+        rest_->width = ui::SizeSpec::fill();  // what "Se termine à" leaves: a long chapter is cut with an ellipsis
+        endsAt_ = times->add<ui::Label>("", ui::FontStyle{kTimesSize, ui::FontWeight::Regular});
+        endsAt_->color = ui::theme().textSecondary;
+        row_ = bar_->add<ui::Box>(ui::Axis::Row);
+        row_->width = ui::SizeSpec::fill();
+        row_->padding = {kRowTop, 0, 0, 0};
+        row_->crossAlign = ui::CrossAlign::End;
+        buildRow();
         preview_ = add<TrickplayPreview>();  // over the bar
         preview_->setAnchor(progress_, bar_);
     }
 
     void showBar() {
         barUntil_ = now() + kBarMs;
-        if (!bar_->visible) {
-            bar_->visible = true;
+        setBarShown(true);
+    }
+
+    void setBarShown(bool shown) {
+        if (bar_->visible != shown) {
+            bar_->visible = shown;
+            shade_->visible = shown;
             markDirty();
         }
     }
 
+    // a live: its LIVE badge where the times are, and no progress bar
+    void showTimes(bool shown) {
+        progress_->visible = shown;
+        position_->visible = shown;
+        rest_->visible = shown;
+        endsAt_->visible = shown;
+        live_->visible = !shown;
+        markDirty();
+    }
+
     void refreshBar(const player::Engine::State& state) {
         if (streams_.live) {
-            progress_->visible = false;
-            time_->visible = false;
             return;
         }
         const double position = seek_.pending() ? seek_.target() : state.position;
-        std::string text = clockText(position) + " / " + clockText(state.duration);
+        const std::string at = clockText(position);
+        std::string rest = "/ " + clockText(state.duration);
         if (const int chapter = chapterAt(position); chapter >= 0) {  // the part it is in
-            text += " \xC2\xB7 " + core::withoutEmoji(chapters_[static_cast<std::size_t>(chapter)].title);
+            rest += " \xC2\xB7 " + core::withoutEmoji(chapters_[static_cast<std::size_t>(chapter)].title);
         }
-        if (state.duration > 0) {  // when it would end, playing on from here
-            text += " \xC2\xB7 " +
-                    ui::tr("player.ends_at", {endsAtText(session_, state.duration, position, speed_)});
+        if (at != position_->text()) {
+            position_->setText(at);
         }
-        if (text != time_->text()) {
-            time_->setText(text);
+        if (rest != rest_->text()) {
+            rest_->setText(rest);
+        }
+        // when it would end, playing on from here: written again only when that minute changes
+        const std::int64_t endsMinute =
+            state.duration > 0 ? endsAtSeconds(session_, state.duration, position, speed_) / 60 : -1;
+        if (endsMinute != endsMinute_) {
+            endsMinute_ = endsMinute;
+            const std::int64_t end = endsMinute * 60;
+            endsAt_->setText(endsMinute < 0 ? std::string()
+                                            : ui::tr("player.ends_at", {clock24(end, session_.utcOffsetMinutes(end))}));
         }
         preview_->update(seek_.pending(), position, state.duration, lastDirection_, clockText(position));
         progress_->set(position, state.duration, segments_);
     }
 
-    // ---- the menu (↑ or ↓): the video's row (J'aime, Je n'aime pas, S'abonner, Commentaires, Enregistrer,
-    // Chaîne) above the playback's (Pause/Lecture, Qualité, Vitesse, Audio, Sous-titres)
+    // ---- the icon row, always part of the bar. Left: Pause/Lecture, Depuis le début, J'aime, Je n'aime pas, Chat en
+    // direct, Commentaires, Enregistrer, S'abonner, File d'attente, Chaîne; right: Sous-titres, Paramètres. Each
+    // shows only when it applies (refreshRow).
 
-    void openMenu() {
-        if (!engine_) {
-            return;
-        }
-        actions_->clearChildren();
-        playback_->clearChildren();
-        like_ = dislike_ = subscribe_ = nullptr;
+    void buildRow() {
+        auto* left = row_->add<ui::Box>(ui::Axis::Row);
+        left->gap = kIconGap;
+        auto* space = row_->add<ui::View>();
+        space->width = ui::SizeSpec::fill();
+        auto* right = row_->add<ui::Box>(ui::Axis::Row);
+        right->gap = kIconGap;
+        // the actions run on the next frame: some replace or cover this screen
+        const auto icon = [this](ui::Box* group, ui::Icon shape, const std::string& label,
+                                 std::function<void()> action) {
+            return group->add<ui::IconButton>(shape, label, [this, action] { later(action); });
+        };
+        pauseIcon_ = icon(left, ui::Icon::Pause, ui::tr("player.pause"), [this] { togglePause(); });
+        fromStartIcon_ = icon(left, ui::Icon::Restart, ui::tr("player.from_start"), [this] {
+            if (engine_) {
+                engine_->seekTo(0);
+            }
+            leaveRow();
+        });
+        likeIcon_ = icon(left, ui::Icon::Like, ui::tr("player.like"), [this] { rate(true); });
+        dislikeIcon_ = icon(left, ui::Icon::Dislike, ui::tr("player.dislike"), [this] { rate(false); });
+        chatIcon_ = icon(left, ui::Icon::LiveChat, ui::tr("player.live_chat"), [this] { openLiveChat(); });
+        commentsIcon_ = icon(left, ui::Icon::Comments, ui::tr("player.comments"), [this] { openComments(); });
+        saveIcon_ = icon(left, ui::Icon::Save, ui::tr("player.save"), [this] { save(); });
+        subscribeIcon_ = icon(left, ui::Icon::Bell, ui::tr("channel.subscribe"), [this] { toggleSubscription(); });
+        queueIcon_ = icon(left, ui::Icon::Queue, "", [this] { showQueue(); });
+        channelIcon_ = icon(left, ui::Icon::Channel, ui::tr("video.channel"), [this] { openChannelHere(); });
+        captionsIcon_ = icon(right, ui::Icon::Captions, ui::tr("player.subtitles"), [this] { chooseSubtitles(); });
+        settingsIcon_ = icon(right, ui::Icon::Settings, ui::tr("player.settings"), [this] { openSettings(); });
+        settingsIcon_->setLabelAlign(ui::CrossAlign::End);  // its name stays on screen
+        refreshRow();
+    }
+
+    // which icons apply to this video (the streams, the video page, the account and the queue tell)
+    void refreshRow() {
         const bool signedIn = session_.account().signedIn();
-        if (signedIn) {
-            like_ = actions_->add<ui::Button>(ui::tr("player.like"), [this] { later([this] { rate(true); }); });
-            dislike_ = actions_->add<ui::Button>(ui::tr("player.dislike"), [this] { later([this] { rate(false); }); });
-            if (!channelId().empty()) {
-                subscribe_ = actions_->add<ui::Button>(ui::tr("channel.subscribe"),
-                                                       [this] { later([this] { toggleSubscription(); }); });
+        const bool channel = !channelId().empty();
+        fromStartIcon_->visible = !streams_.live && resumedFrom_ > 0;
+        likeIcon_->visible = signedIn;
+        dislikeIcon_->visible = signedIn;
+        chatIcon_->visible = streams_.live && !liveChat_.empty();
+        saveIcon_->visible = signedIn;
+        subscribeIcon_->visible = signedIn && channel;
+        const std::size_t queued = session_.watchQueue().size();
+        queueIcon_->visible = queued > 0;
+        const std::string queueLabel = ui::tr("queue.button", {std::to_string(queued)});
+        if (queueLabel != queueIcon_->label()) {
+            queueIcon_->setLabel(queueLabel);
+        }
+        channelIcon_->visible = channel;
+        if (!channelName_.empty()) {  // its initial once known (kept after); a channel glyph until then
+            channelIcon_->setInitial(initialOf(channelName_));
+            channelIcon_->setPicture(channelAvatar_);
+        }
+        captionsIcon_->visible = !streams_.captions.empty();
+        // the focused icon went: Pause/Lecture instead
+        if (ui::Application* app = ui::Application::current()) {
+            ui::View* focused = app->focus().focused();
+            if (focused != nullptr && row_->isAncestorOf(focused) && !focused->visible) {
+                app->focus().focus(pauseIcon_);
             }
         }
-        votesLabel_ = nullptr;
-        if (!signedIn) {
-            votesLabel_ = actions_->add<ui::Label>("", bodyText());
-            votesLabel_->color = ui::theme().text;  // on a chip of its own: readable over any picture
-            votesLabel_->background = ui::theme().control;
-            votesLabel_->cornerRadius = ui::theme().radius;
-            votesLabel_->padding = {ui::theme().spacingM - 2, ui::theme().spacingL - 4, ui::theme().spacingM - 2,
-                                    ui::theme().spacingL - 4};
-            votesLabel_->visible = false;
-        }
-        if (streams_.live && !liveChat_.empty()) {
-            actions_->add<ui::Button>(ui::tr("player.live_chat"), [this] { later([this] { openLiveChat(); }); });
-        }
-        actions_->add<ui::Button>(ui::tr("player.comments"), [this] { later([this] { openComments(); }); });
-        if (signedIn) {
-            actions_->add<ui::Button>(ui::tr("player.save"), [this] { later([this] { save(); }); });
-        }
-        if (!channelId().empty()) {
-            actions_->add<ui::Button>(ui::tr("video.channel"), [this] { later([this] { openChannelHere(); }); });
-        }
         refreshActions();
-        const bool paused = engine_->state().paused;
-        auto* first = playback_->add<ui::Button>(ui::tr(paused ? "player.play" : "player.pause"),
-                                                 [this] { later([this] { togglePause(); openMenu(); }); });
-        if (!streams_.live) {
-            playback_->add<ui::Button>(ui::tr("player.quality"), [this] { later([this] { chooseQuality(); }); });
-            playback_->add<ui::Button>(ui::tr("player.speed"), [this] { later([this] { chooseSpeed(); }); });
+    }
+
+    // Pause or Lecture, as the video is
+    void refreshPause(bool paused) {
+        if (paused == pausedShown_) {
+            return;
         }
-        if (streams_.audioTracks.size() > 1) {
-            playback_->add<ui::Button>(ui::tr("player.audio"), [this] { later([this] { chooseAudio(); }); });
-        }
-        if (!streams_.captions.empty()) {
-            playback_->add<ui::Button>(ui::tr("player.subtitles"), [this] { later([this] { chooseSubtitles(); }); });
-        }
-        if (!streams_.live && resumedFrom_ > 0) {  // it resumed where it was left: from the start instead
-            playback_->add<ui::Button>(ui::tr("player.from_start"), [this] {
-                later([this] {
-                    if (engine_) {
-                        engine_->seekTo(0);
-                    }
-                    closeMenu();
-                });
-            });
-        }
-        if (!session_.watchQueue().empty()) {
-            playback_->add<ui::Button>(ui::tr("queue.button", {std::to_string(session_.watchQueue().size())}),
-                                       [this] { later([this] { showQueue(); }); });
-        }
-        playback_->add<ui::Button>(ui::tr("player.volume"), [this] { later([this] { chooseVolume(); }); });
-        playback_->add<ui::Button>(ui::tr("player.picture"), [this] { later([this] { choosePicture(); }); });
-        menu_->visible = true;
+        pausedShown_ = paused;
+        pauseIcon_->setIcon(paused ? ui::Icon::Play : ui::Icon::Pause);
+        pauseIcon_->setLabel(ui::tr(paused ? "player.play" : "player.pause"));
+    }
+
+    bool rowFocused() const {
+        ui::Application* app = ui::Application::current();
+        const ui::View* focused = app != nullptr ? app->focus().focused() : nullptr;
+        return focused != nullptr && row_->isAncestorOf(focused);
+    }
+
+    // ↑ / ↓ / △ / OPTIONS: the bar, with the focus on Pause/Lecture
+    void focusRow() {
         showBar();
         if (ui::Application* app = ui::Application::current()) {
-            app->focus().focus(first);
+            app->focus().focus(pauseIcon_);
         }
         markDirty();
     }
 
-    // the rating and the subscription YouTube confirmed: the active rating is filled with the accent
+    // the focus came back to an icon (a modal it opened closed): the bar shows again
+    void onDescendantFocused(ui::View* view) override {
+        if (!bar_->visible && row_->isAncestorOf(view)) {
+            showBar();
+        }
+    }
+    // or to the screen itself (the icon that opened the modal went meanwhile)
+    void onFocusChanged(bool focused) override {
+        if (focused && !bar_->visible) {
+            showBar();
+        }
+    }
+
+    // what has the focus now: taken before a modal is built (a panel may focus its own content as it is made)
+    static ui::View* focusedNow() {
+        ui::Application* app = ui::Application::current();
+        return app != nullptr ? app->focus().focused() : nullptr;
+    }
+
+    // a modal over the player, the bar hidden (its row would lie under the modal's hints and panels); when it
+    // closes the focus goes back to `opener` (an icon, a line of the panel) and the bar with it
+    void showModal(ui::View* opener, std::unique_ptr<ui::View> modal) {
+        if (ui::Application* app = ui::Application::current()) {
+            app->showModal(std::move(modal), opener);
+            setBarShown(false);
+        }
+    }
+
+    // ◯: back to the video (← / → seek again); the bar hides as usual
+    void leaveRow() {
+        if (ui::Application* app = ui::Application::current(); app != nullptr && rowFocused()) {
+            app->focus().focus(this);
+        }
+        showBar();
+        markDirty();
+    }
+
+    // the rating and the subscription YouTube confirmed (the active rating filled, a ticked bell when subscribed),
+    // the counts in the names; signed out, the counts go in the channel line
     void refreshActions() {
         const youtube::Rating rating = state_ ? state_->rating : youtube::Rating::None;
-        if (like_ != nullptr) {
-            std::string text = ui::tr("player.like");
-            if (state_ && !state_->likesText.empty()) {
-                text += " \xC2\xB7 " + state_->likesText;
-            }
-            like_->setText(text);
-            like_->setPrimary(rating == youtube::Rating::Like);
+        std::string like = ui::tr("player.like");
+        if (state_ && !state_->likesText.empty()) {
+            like += " \xC2\xB7 " + state_->likesText;
+        } else if (votes_) {  // YouTube gave no count: Return YouTube Dislike's
+            like += " \xC2\xB7 " + compactCount(votes_->likes);
         }
-        if (dislike_ != nullptr) {
-            std::string text = ui::tr("player.dislike");
-            if (votes_) {
-                text += " \xC2\xB7 " + groupedNumber(votes_->dislikes);
-            }
-            dislike_->setText(text);
-            dislike_->setPrimary(rating == youtube::Rating::Dislike);
+        likeIcon_->setLabel(like);
+        likeIcon_->setIcon(rating == youtube::Rating::Like ? ui::Icon::LikeFilled : ui::Icon::Like);
+        std::string dislike = ui::tr("player.dislike");
+        if (votes_) {
+            dislike += " \xC2\xB7 " + compactCount(votes_->dislikes);
         }
-        if (votesLabel_ != nullptr) {  // signed out: no buttons to rate, the counts alone
-            votesLabel_->setText(votes_ ? ui::tr("player.votes", {groupedNumber(votes_->likes),
-                                                                  groupedNumber(votes_->dislikes)})
-                                        : std::string());
-            votesLabel_->visible = votes_.has_value();
+        dislikeIcon_->setLabel(dislike);
+        dislikeIcon_->setIcon(rating == youtube::Rating::Dislike ? ui::Icon::DislikeFilled : ui::Icon::Dislike);
+        const bool subscribed = state_ && state_->subscribed;
+        subscribeIcon_->setLabel(ui::tr(subscribed ? "channel.subscribed" : "channel.subscribe"));
+        subscribeIcon_->setIcon(subscribed ? ui::Icon::BellTicked : ui::Icon::Bell);
+        std::string line = channelName_;
+        if (!session_.account().signedIn() && votes_) {  // no buttons to rate: the counts alone
+            const std::string counts =
+                ui::tr("player.votes", {compactCount(votes_->likes), compactCount(votes_->dislikes)});
+            line = line.empty() ? counts : line + " \xC2\xB7 " + counts;
         }
-        if (subscribe_ != nullptr) {
-            subscribe_->setText(ui::tr(state_ && state_->subscribed ? "channel.subscribed" : "channel.subscribe"));
+        if (line != channel_->text()) {
+            channel_->setText(line);
+        }
+        avatar_->visible = !channelName_.empty();
+        avatar_->setLetter(initialOf(channelName_));
+        if (!channelAvatar_.empty()) {
+            avatar_->setPicture(channelAvatar_);
         }
         markDirty();
+    }
+
+    // Paramètres: its panel at the right over the dimmed picture (the bar hidden), each line with its value and
+    // opening its chooser. Qualité and Vitesse not on a live, Piste audio only with several tracks.
+    std::vector<PlayerSettingRow> settingRows() {
+        std::vector<PlayerSettingRow> rows;
+        if (!streams_.live) {
+            rows.push_back({ui::tr("player.quality"), std::to_string(maxHeight_) + "p", [this] { chooseQuality(); }});
+            rows.push_back({ui::tr("player.speed"), speedText(speed_), [this] { chooseSpeed(); }});
+        }
+        const Settings& settings = session_.settings();
+        rows.push_back({ui::tr("player.volume"), std::to_string(settings.volume) + " %", [this] { chooseVolume(); }});
+        rows.push_back({ui::tr("player.picture"), pictureText(settings.pictureFit, settings.pictureSize),
+                        [this] { choosePicture(); }});
+        if (streams_.audioTracks.size() > 1) {
+            rows.push_back({ui::tr("player.audio"), audioText(), [this] { chooseAudio(); }});
+        }
+        return rows;
+    }
+
+    // the audio track playing: its name (its id when it has none)
+    std::string audioText() const {
+        for (const youtube::AudioTrack& track : streams_.audioTracks) {
+            if (track.id == streams_.audioTrack) {
+                return track.name.empty() ? track.id : track.name;
+            }
+        }
+        return {};
+    }
+
+    void openSettings() {
+        ui::Application* app = ui::Application::current();
+        if (app == nullptr) {
+            return;
+        }
+        ui::View* opener = focusedNow();
+        auto panel = makePlayerSettings(settingRows());
+        panel->trackIn(settings_);
+        showModal(opener, std::move(panel));  // the picture alone behind the panel (showModal hides the bar)
+    }
+
+    // a chooser changed something: the panel, while open, shows the new value
+    void refreshSettings() {
+        PlayerSettings* panel = *settings_;  // null once the panel is gone
+        if (panel == nullptr) {
+            return;
+        }
+        for (const PlayerSettingRow& row : settingRows()) {
+            panel->setValue(row.name, row.value);
+        }
     }
 
     // J'aime / Je n'aime pas; pressing the active one takes the rating back
@@ -530,12 +779,10 @@ private:
                     const std::string title = core::withoutEmoji(choice.title);
                     names.push_back(choice.contains ? ui::tr("player.save.contains", {title}) : title);
                 }
-                if (ui::Application* app = ui::Application::current()) {
-                    app->showModal(ui::makeChoiceDialog(ui::tr("player.save.title"), names, 0,
-                                                        [this, list](int index) {
-                                                            addTo((*list)[static_cast<std::size_t>(index)]);
-                                                        }));
-                }
+                ui::View* opener = focusedNow();
+                showModal(opener, ui::makeChoiceDialog(ui::tr("player.save.title"), names, 0, [this, list](int index) {
+                    addTo((*list)[static_cast<std::size_t>(index)]);
+                }));
             });
     }
 
@@ -568,15 +815,16 @@ private:
             fetchCommentsStart();
             return;
         }
-        closeMenu();
         AppSession* shared = &session_;
         const core::CancelToken cancel = token_;
-        app->showModal(std::make_unique<CommentsPanel>(
+        ui::View* opener = focusedNow();  // the panel focuses its first comment as it is made (pages come inline)
+        auto panel = std::make_unique<CommentsPanel>(
             commentsContinuation_, [this, shared, cancel](const std::string& token, CommentsPanel::Done done) {
                 run<core::Result<youtube::CommentPage>>(
                     [shared, token, cancel] { return shared->youtube().comments(token, cancel); },
                     [done](core::Result<youtube::CommentPage> page) { done(std::move(page)); });
-            }));
+            });
+        showModal(opener, std::move(panel));
     }
 
     // the live chat in its panel over the video, its pages asked for as long as it is open
@@ -585,15 +833,16 @@ private:
         if (app == nullptr || liveChat_.empty()) {
             return;
         }
-        closeMenu();
         AppSession* shared = &session_;
         const core::CancelToken cancel = token_;
-        app->showModal(std::make_unique<ChatPanel>(
+        ui::View* opener = focusedNow();
+        auto panel = std::make_unique<ChatPanel>(
             liveChat_, [this, shared, cancel](const std::string& token, ChatPanel::Done done) {
                 run<core::Result<youtube::ChatPage>>(
                     [shared, token, cancel] { return shared->youtube().liveChat(token, cancel); },
                     [done](core::Result<youtube::ChatPage> page) { done(std::move(page)); });
-            }));
+            });
+        showModal(opener, std::move(panel));
     }
 
     // the video page failed or has not answered: asked (again) for its comments' first page, then the panel
@@ -629,17 +878,6 @@ private:
         }
     }
 
-    void closeMenu() {
-        if (!menu_->visible) {
-            return;
-        }
-        if (ui::Application* app = ui::Application::current()) {
-            app->focus().focus(this);
-        }
-        menu_->visible = false;
-        markDirty();
-    }
-
     void chooseQuality() {
         std::vector<std::string> names;
         int selected = 3;
@@ -647,11 +885,12 @@ private:
             names.push_back(std::to_string(kHeights[i]) + "p");
             selected = kHeights[i] == maxHeight_ ? i : selected;
         }
-        ui::Application::current()->showModal(
-            ui::makeChoiceDialog(ui::tr("player.quality"), names, selected, [this](int index) {
-                maxHeight_ = kHeights[index];
-                restart();  // the same second at the new quality
-            }));
+        ui::View* opener = focusedNow();
+        showModal(opener, ui::makeChoiceDialog(ui::tr("player.quality"), names, selected, [this](int index) {
+            maxHeight_ = kHeights[index];
+            restart();  // the same second at the new quality
+            refreshSettings();
+        }));
     }
 
     // YouTube's storyboards of the video, for the preview while seeking (not for a live)
@@ -686,12 +925,14 @@ private:
             text += "\n\xE2\x80\xA6";
         }
         AppSession* shared = &session_;
-        ui::Application::current()->showModal(ui::makeDialog(ui::tr("queue.title"), text,
-                                                             {{ui::tr("queue.clear"), [this, shared] {
-                                                                   shared->watchQueue().clear();
-                                                                   closeMenu();
-                                                               }},
-                                                              {ui::tr("ui.close"), {}}}));
+        ui::View* opener = focusedNow();
+        showModal(opener, ui::makeDialog(ui::tr("queue.title"), text,
+                                         {{ui::tr("queue.clear"),
+                                           [this, shared] {
+                                               shared->watchQueue().clear();
+                                               refreshRow();  // its icon goes
+                                           }},
+                                          {ui::tr("ui.close"), {}}}));
     }
 
     // ---- volume and picture (kept in the settings for the next videos)
@@ -704,42 +945,38 @@ private:
             names.push_back(std::to_string(percent) + " %");
             selected = percent == session_.settings().volume ? i : selected;
         }
-        ui::Application::current()->showModal(
-            ui::makeChoiceDialog(ui::tr("player.volume"), names, selected, [this](int index) {
-                session_.settings().volume = 100 - index * 10;
-                session_.saveSettings();
-                if (engine_) {
-                    engine_->setVolume(session_.settings().volume);
-                }
-            }));
+        ui::View* opener = focusedNow();
+        showModal(opener, ui::makeChoiceDialog(ui::tr("player.volume"), names, selected, [this](int index) {
+            session_.settings().volume = 100 - index * 10;
+            session_.saveSettings();
+            if (engine_) {
+                engine_->setVolume(session_.settings().volume);
+            }
+            refreshSettings();
+        }));
     }
 
     void choosePicture() {
-        static const char* const kFits[] = {"fit", "fill", "stretch"};
-        static const int kSizes[] = {100, 95, 90, 85, 80};
         std::vector<std::string> names;
         int selected = 0;
         for (int f = 0; f < 3; ++f) {
-            for (int z = 0; z < (f == 0 ? 5 : 1); ++z) {  // a smaller picture only makes sense whole
-                std::string name = ui::tr(std::string("player.picture.") + kFits[f]);
-                if (f == 0 && z > 0) {
-                    name += " \xC2\xB7 " + std::to_string(kSizes[z]) + " %";
-                }
+            for (int z = 0; z < (f == 0 ? 5 : 1); ++z) {
                 if (session_.settings().pictureFit == kFits[f] &&
                     (f != 0 || session_.settings().pictureSize == kSizes[z])) {
                     selected = static_cast<int>(names.size());
                 }
-                names.push_back(name);
+                names.push_back(pictureText(kFits[f], kSizes[z]));
             }
         }
-        ui::Application::current()->showModal(
-            ui::makeChoiceDialog(ui::tr("player.picture"), names, selected, [this](int index) {
-                Settings& settings = session_.settings();
-                settings.pictureFit = index < 5 ? "fit" : index == 5 ? "fill" : "stretch";
-                settings.pictureSize = index < 5 ? kSizes[index] : 100;
-                session_.saveSettings();
-                markDirty();
-            }));
+        ui::View* opener = focusedNow();
+        showModal(opener, ui::makeChoiceDialog(ui::tr("player.picture"), names, selected, [this](int index) {
+            Settings& settings = session_.settings();
+            settings.pictureFit = index < 5 ? "fit" : index == 5 ? "fill" : "stretch";
+            settings.pictureSize = index < 5 ? kSizes[index] : 100;
+            session_.saveSettings();
+            markDirty();
+            refreshSettings();
+        }));
     }
 
     void chooseSpeed() {
@@ -747,18 +984,17 @@ private:
         int selected = 2;
         const auto& speeds = youtube::playbackSpeeds();
         for (std::size_t i = 0; i < speeds.size(); ++i) {
-            char text[16];
-            std::snprintf(text, sizeof text, "%g\xC3\x97", speeds[i]);
-            names.emplace_back(text);
+            names.push_back(speedText(speeds[i]));
             selected = speeds[i] == speed_ ? static_cast<int>(i) : selected;
         }
-        ui::Application::current()->showModal(
-            ui::makeChoiceDialog(ui::tr("player.speed"), names, selected, [this](int index) {
-                speed_ = youtube::playbackSpeeds()[static_cast<std::size_t>(index)];
-                if (engine_) {
-                    engine_->setSpeed(speed_);
-                }
-            }));
+        ui::View* opener = focusedNow();
+        showModal(opener, ui::makeChoiceDialog(ui::tr("player.speed"), names, selected, [this](int index) {
+            speed_ = youtube::playbackSpeeds()[static_cast<std::size_t>(index)];
+            if (engine_) {
+                engine_->setSpeed(speed_);
+            }
+            refreshSettings();
+        }));
     }
 
     // YouTube's dubbed languages: the chosen one plays from the same moment, and stays for later restarts
@@ -770,19 +1006,20 @@ private:
                                                                  : streams_.audioTracks[i].name);
             selected = streams_.audioTracks[i].id == streams_.audioTrack ? static_cast<int>(i) : selected;
         }
-        ui::Application::current()->showModal(
-            ui::makeChoiceDialog(ui::tr("player.audio"), names, selected, [this](int index) {
-                const youtube::AudioTrack& track = streams_.audioTracks[static_cast<std::size_t>(index)];
-                if (track.id == streams_.audioTrack || !engine_) {
-                    return;
-                }
-                audioTrack_ = track.id;
-                PF_LOG_INFO("player: audio %s", track.id.c_str());
-                streams_.audioTrack = track.id;
-                streams_.audio = track.url;
-                engine_->load(streams_.video, std::max(lastPosition_, engine_->state().position), streams_.audio);
-                engine_->setSpeed(speed_);
-            }));
+        ui::View* opener = focusedNow();
+        showModal(opener, ui::makeChoiceDialog(ui::tr("player.audio"), names, selected, [this](int index) {
+            const youtube::AudioTrack& track = streams_.audioTracks[static_cast<std::size_t>(index)];
+            if (track.id == streams_.audioTrack || !engine_) {
+                return;
+            }
+            audioTrack_ = track.id;
+            PF_LOG_INFO("player: audio %s", track.id.c_str());
+            streams_.audioTrack = track.id;
+            streams_.audio = track.url;
+            engine_->load(streams_.video, std::max(lastPosition_, engine_->state().position), streams_.audio);
+            engine_->setSpeed(speed_);
+            refreshSettings();
+        }));
     }
 
     void chooseSubtitles() {
@@ -790,11 +1027,12 @@ private:
         for (const youtube::CaptionTrack& track : streams_.captions) {
             names.push_back(track.name.empty() ? track.language : track.name);
         }
-        ui::Application::current()->showModal(
-            ui::makeChoiceDialog(ui::tr("player.subtitles"), names, captionIndex() + 1, [this](int index) {
-                captionLanguage_ = index > 0 ? streams_.captions[static_cast<std::size_t>(index - 1)].language : "";
-                applyCaption();
-            }));
+        ui::View* opener = focusedNow();
+        const int selected = captionIndex() + 1;
+        showModal(opener, ui::makeChoiceDialog(ui::tr("player.subtitles"), names, selected, [this](int index) {
+            captionLanguage_ = index > 0 ? streams_.captions[static_cast<std::size_t>(index - 1)].language : "";
+            applyCaption();
+        }));
     }
 
     // the chosen language in the current streams' tracks (a restart may get them from another client), -1: none
@@ -836,13 +1074,14 @@ private:
     // ---- controls
 
     void bindControls() {
-        // no hints: the bar and the buttons say enough while a video plays
+        // no hints: the bar and its icons say enough while a video plays. With the focus in the row, ✕ goes to the
+        // focused icon and ← / → move along the row.
         bind(platform::Action::Confirm, "", [this] {
             togglePause();
             return true;
         });
-        bind(platform::Action::Left, "", [this] { return menu_->visible ? false : (seekBy(-1), true); });
-        bind(platform::Action::Right, "", [this] { return menu_->visible ? false : (seekBy(1), true); });
+        bind(platform::Action::Left, "", [this] { return rowFocused() ? false : (seekBy(-1), true); });
+        bind(platform::Action::Right, "", [this] { return rowFocused() ? false : (seekBy(1), true); });
         // with chapters: the previous / next one; else a minute back / on
         bind(platform::Action::L1, "", [this] {
             chapters_.empty() ? seekSeconds(-60) : seekChapter(-1);
@@ -852,39 +1091,36 @@ private:
             chapters_.empty() ? seekSeconds(60) : seekChapter(1);
             return true;
         });
-        // Shorts: ↑ / ↓ the previous / next Short (the menu on △); else ↑ / ↓ open the menu
-        bind(platform::Action::Up, "", [this] {
-            return shorts_ && !menu_->visible ? (nextShort(-1), true) : menuStep(ui::Direction::Up);
-        });
-        bind(platform::Action::Down, "", [this] {
-            return shorts_ && !menu_->visible ? (nextShort(1), true) : menuStep(ui::Direction::Down);
-        });
-        bind(platform::Action::Options, "", [this] {
-            menu_->visible ? closeMenu() : openMenu();
+        // ↑ / ↓ put the focus on the row; Shorts keep them for the previous / next Short (the row on △ / OPTIONS)
+        bind(platform::Action::Up, "", [this] { return upOrDown(-1); });
+        bind(platform::Action::Down, "", [this] { return upOrDown(1); });
+        // △ and the OPTIONS button: the row, and back to the video
+        const auto toggleRow = [this] {
+            rowFocused() ? leaveRow() : focusRow();
             return true;
-        });
+        };
+        bind(platform::Action::Options, "", toggleRow);
+        bind(platform::Action::Menu, "", toggleRow);
         bind(platform::Action::Back, "", [this] {
             if (nextShown()) {
                 cancelNext();
                 return true;
             }
-            if (menu_->visible) {
-                closeMenu();
+            if (rowFocused()) {
+                leaveRow();
                 return true;
             }
             return false;  // the application pops the player
         });
     }
 
-    // ↑/↓: open the menu; in it, move between its two rows, and close it past them
-    bool menuStep(ui::Direction direction) {
-        if (!menu_->visible) {
-            openMenu();
-            return true;
-        }
-        ui::Application* app = ui::Application::current();
-        if (app == nullptr || !app->focus().move(direction)) {
-            closeMenu();
+    bool upOrDown(int direction) {
+        if (rowFocused()) {
+            showBar();  // one row: the focus stays in it
+        } else if (shorts_) {
+            nextShort(direction);
+        } else {
+            focusRow();
         }
         return true;
     }
@@ -920,6 +1156,7 @@ private:
             return;
         }
         engine_->setPaused(!engine_->state().paused);
+        refreshPause(engine_->state().paused);
         showBar();
     }
 
@@ -1057,7 +1294,8 @@ private:
         if (!streams_.title.empty()) {
             title_->setText(core::withoutEmoji(streams_.title));
         }
-        live_->visible = streams_.live;
+        showTimes(!streams_.live);
+        refreshRow();
         for (const youtube::AudioTrack& track : streams_.audioTracks) {
             if (!audioTrack_.empty() && track.id == audioTrack_) {  // the language chosen before a restart
                 streams_.audioTrack = track.id;
@@ -1107,23 +1345,58 @@ private:
             refreshActions();
         }
         if (extras.next.ok()) {
-            const youtube::NextReply& next = extras.next.value();
-            chapters_ = next.chapters;
-            progress_->setChapters(chapterStarts());
-            ownerId_ = next.owner.id;
-            commentsContinuation_ = next.commentsContinuation;
-            commentsChecked_ = true;
-            liveChat_ = next.liveChat;
-            channel_->setText(core::withoutEmoji(next.owner.name));
-            for (const youtube::Video& video : next.related) {
-                if (nextVideo_) {
-                    break;  // the playlist's next video
-                }
-                if (!video.live && !video.id.empty() && (session_.settings().shorts || !video.isShort)) {
-                    nextVideo_ = video;
-                }
+            applyPage(extras.next.value());
+        } else {
+            pageFailed(extras.next.error());
+        }
+    }
+
+    // The video page: chapters, the channel, the comments' first page, the live chat, and what plays next.
+    void applyPage(const youtube::NextReply& next) {
+        pageRetryAtMs_ = 0;
+        chapters_ = next.chapters;
+        progress_->setChapters(chapterStarts());
+        ownerId_ = next.owner.id;
+        commentsContinuation_ = next.commentsContinuation;
+        commentsChecked_ = true;
+        liveChat_ = next.liveChat;
+        channelName_ = core::withoutEmoji(next.owner.name);
+        channelAvatar_ = next.owner.avatar;
+        refreshRow();
+        if (!nextVideo_) {  // (else the playlist's next video)
+            if (const youtube::Video* video =
+                    nextToPlay(next.related, session_.settings().shorts, session_.played())) {
+                nextVideo_ = *video;
+            } else {
+                PF_LOG_INFO("player: %s has no video to play next (%zu related)", videoId_.c_str(),
+                            next.related.size());
             }
         }
+    }
+
+    // The video page did not come: without it nothing plays next and the player would close at the video's end.
+    // Asked again by itself, kPageTries times in all, further and further apart.
+    void pageFailed(const core::Error& error) {
+        ++pageTries_;
+        PF_LOG_WARN("player: the video page of %s did not come (%s, try %d of %d)", videoId_.c_str(),
+                    core::errorKindName(error.kind), pageTries_, kPageTries);
+        pageRetryAtMs_ = pageTries_ < kPageTries ? now() + kPageRetryMs * pageTries_ : 0;
+    }
+
+    void askPageAgain() {
+        pageRetryAtMs_ = 0;
+        AppSession* shared = &session_;
+        const std::string id = videoId_;
+        const core::CancelToken cancel = token_;
+        run<core::Result<youtube::NextReply>>(
+            [shared, id, cancel] { return shared->youtube().next(id, cancel); },
+            [this](core::Result<youtube::NextReply> next) {
+                if (next.ok()) {
+                    applyPage(next.value());
+                } else {
+                    pageFailed(next.error());
+                }
+            });
     }
 
     // Test mode: the first picture before the next frame, then paused on it (deterministic screenshots). Up to a
@@ -1146,6 +1419,7 @@ private:
         }
         if (engine_) {
             engine_->setPaused(true);
+            refreshPause(true);
         }
     }
 
@@ -1168,7 +1442,15 @@ private:
         case player::EngineEvent::Seeked:
             break;
         case player::EngineEvent::EndOfFile:
-            ended();
+            // a stream YouTube cut on the way is no end: asked again and played on from there
+            if (!streams_.live && !shorts_ && streamCutShort(lastPosition_, lastDuration_, lastCutAt_)) {
+                PF_LOG_WARN("player: %s stopped at %s of %s: its stream was cut, starting again there",
+                            videoId_.c_str(), clockText(lastPosition_).c_str(), clockText(lastDuration_).c_str());
+                lastCutAt_ = lastPosition_;
+                restart();
+            } else {
+                ended();
+            }
             break;
         case player::EngineEvent::Error:
             PF_LOG_WARN("player: %s: %s", videoId_.c_str(), engine_->state().error.c_str());
@@ -1182,6 +1464,9 @@ private:
     void tick(bool freshPicture) {
         const std::int64_t t = now();
         const player::Engine::State state = engine_->state();
+        if (pageRetryAtMs_ > 0 && t >= pageRetryAtMs_) {
+            askPageAgain();
+        }
         if (frameShown_) {  // before the first picture mpv has no position yet: seeks would be lost
             if (const auto target = seek_.due(t)) {
                 engine_->seekTo(*target);
@@ -1203,11 +1488,11 @@ private:
                 recordProgress(true);
             }
         }
+        refreshPause(state.paused);
         if (bar_->visible) {
             refreshBar(state);
-            if (t > barUntil_ && !state.paused && !seek_.pending() && !menu_->visible) {
-                bar_->visible = false;
-                markDirty();
+            if (t > barUntil_ && !state.paused && !seek_.pending() && !rowFocused()) {
+                setBarShown(false);  // not while the row has the focus
             }
         }
         if (!bar_->visible) {  // no preview without its bar
@@ -1332,6 +1617,12 @@ private:
             });
             return;
         }
+        PF_LOG_INFO("player: %s ended and nothing plays next (%s)", videoId_.c_str(),
+                    nextCancelled_                         ? "cancelled"
+                    : streams_.live                        ? "a live"
+                    : !session_.settings().autoplay        ? "autoplay off"
+                    : !nextVideo_                          ? "no next video"
+                                                           : "too short");
         leave();
     }
 
@@ -1381,10 +1672,14 @@ private:
         spinner_->visible = false;
         // YouTube's own words when it refused the video, else what went wrong on the way
         const bool refused = error.kind == core::ErrorKind::Server && error.httpStatus == 0;
-        const std::string reason = !refused                ? errorText(error)
+        // The bot check flags the connection, not the video: YouTube's words ("sign in to confirm…") would send
+        // the user to a sign-in that changes nothing, so the dialog says what it is and that it passes
+        const bool blocked = error.kind == core::ErrorKind::Blocked;
+        const std::string reason = blocked                 ? ui::tr("player.blocked.text")
+                                   : !refused              ? errorText(error)
                                    : error.message.empty() ? ui::tr("player.refused_plain")
                                                            : ui::tr("player.refused", {error.message});
-        auto dialog = ui::makeDialog(ui::tr("player.error"), reason,
+        auto dialog = ui::makeDialog(ui::tr(blocked ? "player.blocked" : "player.error"), reason,
                                      {{ui::tr("player.retry"),
                                        [this] {
                                            errorShown_ = false;
@@ -1418,26 +1713,41 @@ private:
     ui::ImageView* nextImage_ = nullptr;
     ui::Label* nextTitle_ = nullptr;
     ui::Label* nextCountdown_ = nullptr;
-    ui::Box* menu_ = nullptr;
-    ui::Box* actions_ = nullptr;
-    ui::Box* playback_ = nullptr;
-    ui::Button* like_ = nullptr;
-    ui::Button* dislike_ = nullptr;
-    ui::Button* subscribe_ = nullptr;
+    ui::Box* row_ = nullptr;
+    ui::IconButton* pauseIcon_ = nullptr;
+    ui::IconButton* fromStartIcon_ = nullptr;
+    ui::IconButton* likeIcon_ = nullptr;
+    ui::IconButton* dislikeIcon_ = nullptr;
+    ui::IconButton* chatIcon_ = nullptr;
+    ui::IconButton* commentsIcon_ = nullptr;
+    ui::IconButton* saveIcon_ = nullptr;
+    ui::IconButton* subscribeIcon_ = nullptr;
+    ui::IconButton* queueIcon_ = nullptr;
+    ui::IconButton* channelIcon_ = nullptr;
+    ui::IconButton* captionsIcon_ = nullptr;
+    ui::IconButton* settingsIcon_ = nullptr;
+    bool pausedShown_ = false;  // the icon shows Lecture (the video is paused)
     std::optional<youtube::VideoState> state_;
     std::string commentsContinuation_;
     ui::Box* bar_ = nullptr;
+    BarShade* shade_ = nullptr;
     ui::Label* title_ = nullptr;
+    ChannelInitial* avatar_ = nullptr;
     ui::Label* channel_ = nullptr;
+    std::string channelName_;
+    std::string channelAvatar_;  // the channel's picture (the video page's owner)
     SegmentBar* progress_ = nullptr;
     TrickplayPreview* preview_ = nullptr;
     std::unique_ptr<WatchHistory> history_;  // signed in, with the setting on
     std::string liveChat_;                    // a live's chat: its first page (from the video page)
     std::optional<youtube::Votes> votes_;
-    ui::Label* votesLabel_ = nullptr;
     std::vector<youtube::Chapter> chapters_;
     ui::Label* live_ = nullptr;
-    ui::Label* time_ = nullptr;
+    ui::Label* position_ = nullptr;  // "2:41"
+    ui::Label* rest_ = nullptr;      // "/ 10:23 · <chapter>"
+    ui::Label* endsAt_ = nullptr;    // "Se termine à 21:47"
+    std::int64_t endsMinute_ = -1;   // the minute endsAt_ shows (-1: none)
+    std::shared_ptr<PlayerSettings*> settings_ = std::make_shared<PlayerSettings*>(nullptr);  // the open panel, or null
 
     double speed_ = 1;
     std::string captionLanguage_;  // the captions chosen, "" none
@@ -1450,6 +1760,9 @@ private:
     std::int64_t progressSavedMs_ = 0;
     static constexpr std::int64_t kProgressSaveMs = 30000;
     double lastDuration_ = 0;
+    double lastCutAt_ = -1;            // where the stream was last cut (streamCutShort)
+    int pageTries_ = 0;                // the video page: failed tries
+    std::int64_t pageRetryAtMs_ = 0;   // when it is asked again (0: not waiting)
     unsigned startGeneration_ = 0;
     bool started_ = false;
     bool shown_ = false;

@@ -90,6 +90,10 @@ public:
     // across a restart.
     std::vector<youtube::Video>& watchQueue() { return watchQueue_; }
 
+    // The ids of the videos played since Playtube started (rememberPlayed): what plays next by itself is not one
+    // of them. Not kept across a restart.
+    std::vector<std::string>& played() { return played_; }
+
     // DeArrow (setting `dearrow`, off by default): `ready` gets the video's title and thumbnail address on the main
     // thread, at once when known, else once asked (a video DeArrow has nothing for gets empty ones). Nothing is
     // asked while the setting is off. The last kMaxBrandings are kept in memory.
@@ -129,6 +133,7 @@ private:
     ProgressStore progress_;
     unsigned logoGeneration_ = 0;
     std::vector<youtube::Video> watchQueue_;
+    std::vector<std::string> played_;
     std::unordered_map<std::string, Branding> brandings_;
     std::unordered_map<std::string, std::vector<std::function<void(const Branding&)>>> brandingWaiting_;
 };

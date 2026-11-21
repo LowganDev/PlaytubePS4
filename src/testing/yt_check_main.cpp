@@ -245,20 +245,20 @@ int main(int argc, char** argv) {
             report(!choices.value().empty(), "save to", std::to_string(choices.value().size()) + " playlists");
         }
         const auto tracking = account.withToken(auth, now, [&](const std::string& token) {
-            return client.playbackTracking("dQw4w9WgXcQ", token);
+            return client.playbackTracking("dQw4w9WgXcQ", token, "playtubeCheck000");
         });
         if (check(tracking, "tracking")) {
             report(!tracking.value().watchtimeUrl.empty(), "tracking", "playback and watch time addresses");
         }
         if (!markWatched.empty()) {
             const auto marked = account.withToken(auth, now, [&](const std::string& token) {
-                auto where = client.playbackTracking(markWatched, token);
-                if (!where.ok()) {
-                    return core::Result<core::Unit>(where.error());
-                }
                 const unsigned char random[16] = {static_cast<unsigned char>(now), 7, 13, 21, 34, 55, 89, 144, 233,
                                                   17, 99, 3, 250, 61, 42, static_cast<unsigned char>(now >> 8)};
                 const std::string nonce = youtube::playbackNonce(random);
+                auto where = client.playbackTracking(markWatched, token, nonce);
+                if (!where.ok()) {
+                    return core::Result<core::Unit>(where.error());
+                }
                 auto started = client.report(youtube::playbackReportUrl(where.value().playbackUrl, nonce, 0), token);
                 if (!started.ok() || where.value().watchtimeUrl.empty()) {
                     return started;

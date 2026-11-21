@@ -90,6 +90,11 @@ void FakeYouTube::setChapters(std::vector<std::pair<int, std::string>> chapters)
     chapters_ = std::move(chapters);
 }
 
+void FakeYouTube::hideLikeCount() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    likeCountHidden_ = true;
+}
+
 void FakeYouTube::publishRelease(std::string version, std::string package) {
     std::lock_guard<std::mutex> lock(mutex_);
     releaseVersion_ = std::move(version);
@@ -182,6 +187,13 @@ FakeYouTube::FakeYouTube() {
             reply = youtubeFixture(more ? "search_continuation.json" : "search.json");
         } else if (endpoint == "next" && client == "TVHTML5" && signedIn) {
             reply = youtubeFixture("tv_next.json");
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (likeCountHidden_) {  // the key renamed: the reader finds no count
+                const std::size_t at = reply.find("\"likeCountText\"");
+                if (at != std::string::npos) {
+                    reply.replace(at, 15, "\"likeCountNone\"");
+                }
+            }
         } else if (endpoint == "next" && more) {
             // comments: the first page, its next page, else a comment's replies
             const std::string token = core::json::string(root, "continuation");
@@ -231,6 +243,12 @@ FakeYouTube::FakeYouTube() {
                                                                            : "tv_recommended.json");
         } else if (endpoint == "browse") {
             reply = youtubeFixture("channel.json");
+        } else if (endpoint == "player" && client == "TVHTML5" && signedIn &&
+                   core::json::integer(core::json::object(core::json::object(root, "playbackContext"),
+                                                          "contentPlaybackContext"),
+                                       "signatureTimestamp", 0) < 10000000) {
+            // as YouTube (seen 2026-11-20): without the TV player's own 8-digit signature timestamp, refused
+            reply = R"({"playabilityStatus":{"status":"UNPLAYABLE","reason":"La page doit \u00eatre actualis\u00e9e."}})";
         } else if (endpoint == "player" && client == "TVHTML5" && signedIn) {
             // the account's reporting addresses (the streams come from the other clients)
             const std::string id = core::json::string(root, "videoId");
@@ -293,6 +311,13 @@ FakeYouTube::FakeYouTube() {
         }
         // as long as its clen; ranges answered
         res.set_content(media_.empty() ? std::string(200000, 'x') : media_, "video/mp4");
+    });
+    // the test clip as an HLS playlist (tests/fixtures/media/hls): a live that plays
+    http.Get(R"(/hls/([A-Za-z0-9]+\.(m3u8|ts)))", [this](const httplib::Request& req, httplib::Response& res) {
+        record(req);
+        const bool playlist = req.matches[2] == "m3u8";
+        res.set_content(readFixture("media/hls/" + std::string(req.matches[1])),
+                        playlist ? "application/vnd.apple.mpegurl" : "video/mp2t");
     });
     http.Post("/o/oauth2/device/code", [this](const httplib::Request& req, httplib::Response& res) {
         record(req);

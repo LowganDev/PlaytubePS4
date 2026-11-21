@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <functional>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -63,7 +66,10 @@ public:
     // Tries VISIONOS, ANDROID_VR (a client whose separate streams are refused gives its muxed 360p), IOS and
     // ANDROID (muxed 360p only), then the Invidious instance when one is set. When every client refuses with a
     // visitor id kept from an earlier call, a new id is tried once. The error carries YouTube's reason when they
-    // refuse, the network error when none answered.
+    // refuse (ErrorKind::Blocked when it is the bot check), the network error when none answered.
+    // A connection flagged by the bot check is refused whatever the video, and asking again feeds the flag: a
+    // client it refused rests for kClientRest (when all rest, the first is asked alone), and a new visitor id that
+    // did not help is not tried again for kVisitorRest.
     core::Result<Streams> streams(const std::string& videoId, int maxHeight, const std::string& invidious = {},
                                   const core::CancelToken& cancel = {}) const;
     // SponsorBlock segments of these categories; none when the video has none.
@@ -84,9 +90,16 @@ public:
     core::Result<VideoPage> feedMore(const std::string& continuation, const std::string& accessToken,
                                      const core::CancelToken& cancel = {}) const;
     core::Result<std::string> accountName(const std::string& accessToken, const core::CancelToken& cancel = {}) const;
-    // Where to report watching this video for the account (the TV client's player reply).
+    // Where to report watching this video for the account (the TV client's player reply). `nonce`: the playback's
+    // (playbackNonce), the same as in its reports. The request carries the TV player's own signature timestamp
+    // (kTvSignatureTimestamp): without it YouTube answers UNPLAYABLE and no address.
     core::Result<PlaybackTracking> playbackTracking(const std::string& videoId, const std::string& accessToken,
+                                                    const std::string& nonce,
                                                     const core::CancelToken& cancel = {}) const;
+    // `signatureTimestamp:` of YouTube's TV player script (tv-player-ias-tcl.js), 8 digits; the other players' is
+    // 5 digits and is refused here. An older value keeps being accepted for a while: renewed with the TV client's
+    // version.
+    static constexpr long kTvSignatureTimestamp = 20760001;
     // Sends one report (playbackReportUrl, watchtimeReportUrl) with the account's token. Refused unless the address
     // is YouTube's own reporting service over https: the token goes nowhere else.
     core::Result<core::Unit> report(const std::string& url, const std::string& accessToken,
@@ -108,6 +121,11 @@ public:
 
     const Endpoints& endpoints() const { return endpoints_; }
 
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
+    void setClock(Clock clock) { clock_ = std::move(clock); }  // tests
+    static constexpr std::chrono::minutes kClientRest{10};
+    static constexpr std::chrono::minutes kVisitorRest{30};
+
 private:
     using Fields = std::vector<std::pair<const char*, std::string>>;
     // `json`: fields whose values are already JSON (arrays, objects)
@@ -117,10 +135,11 @@ private:
     core::Result<std::string> get(const std::string& url, const std::string& userAgent,
                                   const core::CancelToken& cancel) const;
     std::string visitorData(const core::CancelToken& cancel) const;
-    // `setback`: a client before the chosen one failed (refused, its files refused, no answer)
+    // `setback`: a client before the chosen one failed (refused, its files refused, no answer); `blocked` is set
+    // when the bot check refused one
     std::optional<Streams> fromClients(const std::string& videoId, int maxHeight, const core::CancelToken& cancel,
                                        std::optional<std::string>& reason, std::optional<core::Error>& failure,
-                                       bool& setback) const;
+                                       bool& setback, bool& blocked) const;
     bool reachable(const std::string& url, const std::string& userAgent, const core::CancelToken& cancel) const;
 
     const net::HttpClient& http_;
@@ -129,6 +148,12 @@ private:
     std::string gl_;
     mutable std::mutex mutex_;
     mutable std::string visitor_;
+    using Time = std::chrono::steady_clock::time_point;
+    Time now() const { return clock_ ? clock_() : std::chrono::steady_clock::now(); }
+    bool resting(const ClientProfile* profile) const;
+    Clock clock_;
+    mutable std::map<const ClientProfile*, Time> restUntil_;  // clients the bot check refused (under mutex_)
+    mutable Time visitorRestUntil_{};                         // no new visitor id before (under mutex_)
 };
 
 }  // namespace playtube::youtube

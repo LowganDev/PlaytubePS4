@@ -17,6 +17,7 @@ enum class ErrorKind {
     Unauthorized,
     NotFound,
     Server,
+    Blocked,  // the service refuses this connection for now (YouTube's bot check)
     BadResponse,
     UnsupportedServer,
     Cancelled,
